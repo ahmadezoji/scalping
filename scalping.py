@@ -1,4 +1,3 @@
-import ccxt
 import asyncio
 import time
 from bingx import *
