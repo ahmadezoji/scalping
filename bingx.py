@@ -3,7 +3,7 @@ import time
 import requests
 import hmac
 from hashlib import sha256
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 
 APIURL = "https://open-api.bingx.com"
@@ -118,36 +118,36 @@ def praseParam(paramsMap):
     return paramsStr+"&timestamp="+str(int(time.time() * 1000))
 
 
-def showKlines(symbol, interval,):
-    rsi_values = []
-    for _ in range(5):
-        rsi_value = get_rsi(symbol, interval)
-        if rsi_value is not None:
-            rsi_values.append(rsi_value)
-            print(f"RSI for {symbol} ({interval}): {rsi_value}")
-            break
-        else:
-            print("Retrying...")
+# def showKlines(symbol, interval,):
+#     rsi_values = []
+#     for _ in range(5):
+#         rsi_value = get_rsi(symbol, interval)
+#         if rsi_value is not None:
+#             rsi_values.append(rsi_value)
+#             print(f"RSI for {symbol} ({interval}): {rsi_value}")
+#             break
+#         else:
+#             print("Retrying...")
 
-    # Plotting
-    if rsi_values:
-        plt.plot(rsi_values, label='RSI')
-        plt.axhline(y=30, color='r', linestyle='--',
-                    label='Oversold (RSI < 30)')
-        plt.axhline(y=70, color='g', linestyle='--',
-                    label='Overbought (RSI > 70)')
+#     # Plotting
+#     if rsi_values:
+#         plt.plot(rsi_values, label='RSI')
+#         plt.axhline(y=30, color='r', linestyle='--',
+#                     label='Oversold (RSI < 30)')
+#         plt.axhline(y=70, color='g', linestyle='--',
+#                     label='Overbought (RSI > 70)')
 
-        # Highlight buy orders (you can customize this part based on your buy conditions)
-        for i, rsi_value in enumerate(rsi_values):
-            if rsi_value < 30:
-                plt.scatter(i, rsi_value, color='b',
-                            label='Buy Order', marker='^', s=100)
+#         # Highlight buy orders (you can customize this part based on your buy conditions)
+#         for i, rsi_value in enumerate(rsi_values):
+#             if rsi_value < 30:
+#                 plt.scatter(i, rsi_value, color='b',
+#                             label='Buy Order', marker='^', s=100)
 
-        plt.title(f"RSI Chart for {symbol} ({interval})")
-        plt.xlabel("Time")
-        plt.ylabel("RSI Value")
-        plt.legend()
-        plt.show()
+#         plt.title(f"RSI Chart for {symbol} ({interval})")
+#         plt.xlabel("Time")
+#         plt.ylabel("RSI Value")
+#         plt.legend()
+#         plt.show()
 
 
 if __name__ == '__main__':
