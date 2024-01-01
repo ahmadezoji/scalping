@@ -1,0 +1,50 @@
+# docker-compose.yml
+version: "3.9"
+services:
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - /var/data/db:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB:watermeterdb
+      - POSTGRES_USER:watermeteruser
+      - POSTGRES_PASSWORD:a09367854752A
+      - HOST=db
+    ports:
+      - "5432:5432"
+  web:
+    restart: always
+    build: .
+    image: app-image
+    command: 
+      sh -c "python3 manage.py makemigrations --noinput &&
+      python3 manage.py migrate --noinput &&
+      python3 manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/Panel
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_NAME=watermeterdb
+      - POSTGRES_USER=watermeteruser
+      - POSTGRES_PASSWORD=a09367854752A
+      - POSTGRES_HOST=db
+    depends_on:
+      - db
+  celery-worker:
+    working_dir: /Panel
+
+    restart: always
+    command:
+      sh -c "python3 -m celery -A Panel worker -l INFO"
+    image: app-image
+    volumes:
+      - .:/Pane
+    environment:
+      - POSTGRES_NAME=watermeterdb
+      - POSTGRES_USER=watermeteruser
+      - POSTGRES_PASSWORD=a09367854752A
+      - POSTGRES_HOST=db
+    depends_on:
+      - db
+      - web
