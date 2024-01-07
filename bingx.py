@@ -5,12 +5,45 @@ import hmac
 from hashlib import sha256
 # import matplotlib.pyplot as plt
 import pandas as pd
+import datetime as dt
+import numpy as np
+
 
 
 APIURL = "https://open-api.bingx.com"
 APIKEY = 'HE9i0tkLC2oxhtjwr6F3R8VA6KMgd9gEoaedxNmiZnC9emlxdHlNkcZGltMv1U0YKPHOvTrQCYcI5qUdDEDA'
 SECRETKEY = 'kcfaeHV6CklsCMRCZqXvC17fcnpg0dKcM6YgiwdkhCXCeB2I8GCVNkHqdlK0BWaUN7E2nFwCCUmSO2OXofA'
 
+def get_last_timestamp(df):
+    # return int(df.time[-1:].values[0])
+    return int(df.index[-1].timestamp())
+
+
+def format_data(data):
+    # data = response.get('list', None)
+    
+    if not data:
+        return 
+    
+    data = pd.DataFrame(data,
+                        columns =[
+                            'time',
+                            'open',
+                            'high',
+                            'low',
+                            'close',
+                            'volume',
+                            ],
+                        )
+    
+    
+    # Convert 'time' column to pandas Timestamp
+    data['time'] = pd.to_datetime(data['time'], unit='ms')
+    
+    # Set 'time' column as the DataFrame index
+    data.set_index('time', inplace=True)
+
+    return data[::-1].apply(pd.to_numeric)
 
 def positions(symbol):
     payload = {}
@@ -118,92 +151,35 @@ def price(symbol):
     paramsStr = praseParam(paramsMap)
     return send_request(method, path, paramsStr, payload)
 
-async def get_rsi14(symbol, interval, period=14):
-    try:
-        response = get_kline(symbol, interval)
-        response.raise_for_status()
-        klines_data = response.json().get('data', [])
-        df = pd.DataFrame(klines_data, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-        df['time'] = pd.to_datetime(df['time'], unit='ms')
-        df.set_index('time', inplace=True)
-        
-        # Convert 'close' column to numeric
-        df['close'] = pd.to_numeric(df['close'], errors='coerce')
-        
-        # Drop rows with missing values in 'close' column
-        df = df.dropna(subset=['close'])
-        # Calculate price differences and handle NaN values
-        price_diff = df['close'].diff(1).fillna(0)
-        price_diff = df['close'].diff(1)
-       
-        gain = price_diff.where(price_diff > 0, 0)
-        loss = -price_diff.where(price_diff < 0, 0)
+def get_and_calculate_rsi(symbol, interval, period=14):
+    start_time_seconds = time.time() - (5 * 60)  # 5 minutes ago in seconds
+    start_time_milliseconds = int(start_time_seconds * 1000)
+    response = get_kline(symbol, interval, period,start=start_time_milliseconds)
+    response.raise_for_status()
+    klines_data = response.json().get('data', [])
+    df = pd.DataFrame(klines_data, columns=['time', 'open', 'high', 'low', 'close', 'volume'])   
+    df['time'] = pd.to_datetime(df['time'], unit='ms')
+    df['delta'] = df['close'].astype(float) - df['close'].astype(float).shift(1)    
+    gains = np.where(df['delta'] > 0, df['delta'], 0)
+    losses = np.where(df['delta'] < 0, -df['delta'], 0)
+    avg_gains = pd.Series(gains).rolling(window=14, min_periods=1).mean()
+    avg_losses = pd.Series(losses).rolling(window=14, min_periods=1).mean()
+    rs = avg_gains / avg_losses
+    rsi = 100 - (100 / (1 + rs))
+    overbought_threshold = 70
+    oversold_threshold = 30
+    df['buy_signal'] = np.where(rsi < oversold_threshold, 1, 0)
+    df['sell_signal'] = np.where(rsi > overbought_threshold, 1, 0)
 
-        avg_gain = gain.rolling(window=period, min_periods=1).mean()
-        avg_loss = loss.rolling(window=period, min_periods=1).mean()
-
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-     
-
-        return rsi.iloc[-1]
-        # return 10
-    
-    except requests.exceptions.RequestException as e:
-        print(f"Error making API request: {e}")
-        return None
-
-
-async def get_rsi(symbol, interval, period=14):
-    try:
-        response = get_kline(symbol, interval)
-        response.raise_for_status()
-        klines_data = response.json().get('data', [])
-
-        if klines_data is None:
-            print("Error: Klines data is None.")
-            return None
-
-        if len(klines_data) < period + 1:
-            print("Insufficient data to calculate RSI.")
-            print(f"Available data: {klines_data}")
-            return None
-
-        closes = [float(kline['close']) for kline in klines_data]
-
-        if len(closes) < period:
-            print("Insufficient data to calculate RSI.")
-            print(f"Available closes: {closes}")
-            return None
-
-        # Calculate daily price changes
-        changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
-
-        # Separate gains and losses
-        gains = [change for change in changes if change > 0]
-        losses = [-change for change in changes if change < 0]
-
-        # Calculate average gains and losses for the initial period
-        avg_gain = sum(gains[:period]) / period
-        avg_loss = sum(losses[:period]) / period
-
-        # Calculate initial RS and RSI
-        rs = avg_gain / avg_loss if avg_loss != 0 else float('inf')
-        rsi = 100 - (100 / (1 + rs))
-
-        # Calculate RSI using SMA for the remaining data
-        for i in range(period, len(closes)):
-            change = closes[i] - closes[i - 1]
-            avg_gain = (avg_gain * (period - 1) + max(0, change)) / period
-            avg_loss = (avg_loss * (period - 1) + max(0, -change)) / period
-            rs = avg_gain / avg_loss if avg_loss != 0 else float('inf')
-            rsi = 100 - (100 / (1 + rs))
-
-        return rsi
-
-    except requests.exceptions.RequestException as e:
-        print(f"Error making API request: {e}")
-        return None
+    for index, row in df.iterrows():
+        if row['buy_signal'] == 1:
+            print(f"Buy signal at {row['time']} for {symbol} ({interval})")
+            # Implement your buy logic here
+            
+        elif row['sell_signal'] == 1:
+            print(f"Sell signal at {row['time']} for {symbol} ({interval})")
+            # Implement your sell logic here
+    return rsi
 
 
 def get_server_time():
@@ -219,7 +195,7 @@ def get_server_time():
     return data.get('serverTime', {})
 
 
-def get_kline(symbol, interval, period=14):
+def get_kline(symbol, interval, period=14,start=str(int(time.time() * 1000))):
     server_time = get_server_time()
     payload = {}
     path = '/openApi/swap/v3/quote/klines'
@@ -227,8 +203,7 @@ def get_kline(symbol, interval, period=14):
     paramsMap = {
         "symbol": symbol,
         "interval": interval,
-        "limit": 10,
-        "timestamp": str(int(time.time() * 1000))
+        "startTime":start
     }
     
 
