@@ -34,7 +34,7 @@ async def rsi_strategy(symbol, interval):
             #     print(f'Sell order executed: {response.text}')
             #     order_status_open = False
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(60)
 
         except Exception as e:
             print(f'An error occurred: {e}')
