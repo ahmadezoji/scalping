@@ -1,7 +1,7 @@
 import asyncio
 import time
 from bingx import *
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import numpy as np
 import datetime
 
