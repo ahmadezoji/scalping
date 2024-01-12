@@ -168,19 +168,19 @@ def get_and_calculate_rsi(symbol, interval, period=14):
     avg_losses = pd.Series(losses).rolling(window=14, min_periods=1).mean()
     rs = avg_gains / avg_losses
     rsi = 100 - (100 / (1 + rs))
-    overbought_threshold = 70
-    oversold_threshold = 30
-    df['buy_signal'] = np.where(rsi < oversold_threshold, 1, 0)
-    df['sell_signal'] = np.where(rsi > overbought_threshold, 1, 0)
+    # overbought_threshold = 70
+    # oversold_threshold = 30
+    # df['buy_signal'] = np.where(rsi < oversold_threshold, 1, 0)
+    # df['sell_signal'] = np.where(rsi > overbought_threshold, 1, 0)
 
-    for index, row in df.iterrows():
-        if row['buy_signal'] == 1:
-            print(f"Buy signal at {row['time']} for {symbol} ({interval})")
-            # Implement your buy logic here
+    # for index, row in df.iterrows():
+    #     if row['buy_signal'] == 1:
+    #         print(f"Buy signal at {row['time']} for {symbol} ({interval})")
+    #         # Implement your buy logic here
             
-        elif row['sell_signal'] == 1:
-            print(f"Sell signal at {row['time']} for {symbol} ({interval})")
-            # Implement your sell logic here
+    #     elif row['sell_signal'] == 1:
+    #         print(f"Sell signal at {row['time']} for {symbol} ({interval})")
+    #         # Implement your sell logic here
     return rsi
 
 

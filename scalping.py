@@ -3,6 +3,8 @@ import time
 from bingx import *
 import matplotlib.pyplot as plt
 import numpy as np
+import datetime
+
 
 quantity = 0.00012
 current_order_id = None
@@ -14,25 +16,35 @@ async def rsi_strategy(symbol, interval):
     global order_status_open
     while True:
         try:
-            rsi =  get_and_calculate_rsi(symbol, interval)
-            # print(f'Current RSI for {interval} interval: {rsi}')
+            # Calculate RSI
+            rsi = get_and_calculate_rsi(symbol, interval)
 
-            # if not order_status_open and rsi < 30:
-            #     print('RSI is below 30. Initiating buy order...')
-            #     response = open_long(symbol=symbol, quantity=quantity)
-            #     print(f'Buy order executed: {response.text}')
-            #     response.raise_for_status()
-            #     data = response.json().get('data', [])
-            #     order_info = data.get('order', {})
-            #     current_order_id = order_info.get('orderId', None)
-            #     if current_order_id is not None:
-            #         order_status_open = True
+            overbought_threshold = 70
+            oversold_threshold = 30
 
-            # elif order_status_open and rsi > 70:
-            #     print('RSI is above 70. Initiating sell order...')
-            #     close_long(symbol=symbol, quantity=quantity)
-            #     print(f'Sell order executed: {response.text}')
-            #     order_status_open = False
+            # Determine buy and sell signals
+            buy_signal = np.where(rsi < oversold_threshold, 1, 0)
+            sell_signal = np.where(rsi > overbought_threshold, 1, 0)
+
+            buy = 0
+            sell = 0
+            # Process signals
+            for i in range(len(buy_signal)):
+                if buy_signal[i] == 1:
+                    if buy >= 5:
+                        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"Buy signal at {current_time} for {symbol} ({interval})")
+                        buy = 0
+                    buy = buy+1
+
+                    # Implement your buy logic here
+
+                elif sell_signal[i] == 1:
+                    if sell >= 5:
+                        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"Sell signal at {current_time} for {symbol} ({interval})")
+                        sell = 0
+                    sell = sell+1
 
             await asyncio.sleep(60)
 
@@ -58,7 +70,6 @@ def supertrend_strategy():
         if not isinstance(latest, pd.DataFrame):
             break
 
-        
         start = get_last_timestamp(latest)
         time.sleep(0.01)
 
@@ -69,25 +80,30 @@ def supertrend_strategy():
         # if len(latest) == 1:
         #     break
 
+
 async def moving_average_crossover_strategy(symbol, interval, short_window, long_window):
     while True:
-        response =  get_kline(symbol, interval)
+        response = get_kline(symbol, interval)
         response.raise_for_status()
         response = response.json().get('data', [])
-        df = pd.DataFrame(response, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+        df = pd.DataFrame(response, columns=[
+                          'time', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['time'], unit='ms')
         df.set_index('time', inplace=True)
 
         signals = pd.DataFrame(index=df.index)
         signals['signal'] = 0.0
 
-        signals['short_mavg'] = df['close'].rolling(window=short_window, min_periods=1, center=False).mean()
-        signals['long_mavg'] = df['close'].rolling(window=long_window, min_periods=1, center=False).mean()
+        signals['short_mavg'] = df['close'].rolling(
+            window=short_window, min_periods=1, center=False).mean()
+        signals['long_mavg'] = df['close'].rolling(
+            window=long_window, min_periods=1, center=False).mean()
 
         min_required_data_points = max(short_window, long_window)
 
         if len(df) >= min_required_data_points:
-            signals['signal'][short_window:] = np.where(signals['short_mavg'][short_window:] > signals['long_mavg'][short_window:], 1.0, 0.0)
+            signals['signal'][short_window:] = np.where(
+                signals['short_mavg'][short_window:] > signals['long_mavg'][short_window:], 1.0, 0.0)
             signals['positions'] = signals['signal'].diff()
         # signals['signal'][short_window:] = np.where(signals['short_mavg'][short_window:] > signals['long_mavg'][short_window:], 1.0, 0.0)
         # for i in range(short_window, len(signals)):
@@ -97,7 +113,9 @@ async def moving_average_crossover_strategy(symbol, interval, short_window, long
         print(signals.tail(1))  # Display the latest signal
         # print(f"short_mavg: {signals['short_mavg'][0]}, long_mavg: {signals['long_mavg'][0]}, signal: {signals['signal'][0]}")
 
-        await asyncio.sleep(1)  # Sleep for 1 second before fetching the next data
+        # Sleep for 1 second before fetching the next data
+        await asyncio.sleep(1)
+
 
 async def main():
     symbol = "BTC-USDT"
