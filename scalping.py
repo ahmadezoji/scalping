@@ -31,20 +31,22 @@ async def rsi_strategy(symbol, interval):
             # Process signals
             for i in range(len(buy_signal)):
                 if buy_signal[i] == 1:
-                    if buy >= 5:
-                        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"Buy signal at {current_time} for {symbol} ({interval})")
-                        buy = 0
-                    buy = buy+1
+                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # if buy >= 5:
+                    #     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    #     print(f"Buy signal at {current_time} for {symbol} ({interval})")
+                    #     buy = 0
+                    # buy = buy+1
 
                     # Implement your buy logic here
 
                 elif sell_signal[i] == 1:
-                    if sell >= 5:
-                        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"Sell signal at {current_time} for {symbol} ({interval})")
-                        sell = 0
-                    sell = sell+1
+                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # if sell >= 5:
+                    #     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    #     print(f"Sell signal at {current_time} for {symbol} ({interval})")
+                    #     sell = 0
+                    # sell = sell+1
 
             await asyncio.sleep(60)
 
