@@ -159,7 +159,7 @@ def get_and_calculate_rsi(symbol, interval, period=14):
     klines_data = response.json().get('data', [])
     df = pd.DataFrame(klines_data, columns=['time', 'open', 'high', 'low', 'close', 'volume'])   
     # df['time'] = pd.to_datetime(df['time'], unit='ms')
-    df['time'] = pd.to_datetime(df['time'], unit='ms').dt.tz_localize('UTC').dt.tz_convert('Europe/Istanbul')
+    # df['time'] = pd.to_datetime(df['time'], unit='ms').dt.tz_localize('UTC').dt.tz_convert('Europe/Istanbul')
 
     df['delta'] = df['close'].astype(float) - df['close'].astype(float).shift(1)    
     gains = np.where(df['delta'] > 0, df['delta'], 0)

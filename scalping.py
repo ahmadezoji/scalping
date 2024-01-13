@@ -10,43 +10,43 @@ quantity = 0.00012
 current_order_id = None
 order_status_open = False
 
-
+buy = 0
+sell = 0
 async def rsi_strategy(symbol, interval):
     global current_order_id
     global order_status_open
+    global buy
+    global sell
     while True:
         try:
             # Calculate RSI
             rsi = get_and_calculate_rsi(symbol, interval)
-
             overbought_threshold = 70
             oversold_threshold = 30
 
             # Determine buy and sell signals
             buy_signal = np.where(rsi < oversold_threshold, 1, 0)
             sell_signal = np.where(rsi > overbought_threshold, 1, 0)
-
-            buy = 0
-            sell = 0
+           
             # Process signals
             for i in range(len(buy_signal)):
                 if buy_signal[i] == 1:
                     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    # if buy >= 5:
-                    #     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    #     print(f"Buy signal at {current_time} for {symbol} ({interval})")
-                    #     buy = 0
-                    # buy = buy+1
+                    if buy >= 5:
+                        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"Buy signal at {current_time} for {symbol} ({interval})")
+                        buy = 0
+                    buy = buy+1
 
                     # Implement your buy logic here
 
                 elif sell_signal[i] == 1:
                     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    # if sell >= 5:
-                    #     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    #     print(f"Sell signal at {current_time} for {symbol} ({interval})")
-                    #     sell = 0
-                    # sell = sell+1
+                    if sell >= 5:
+                        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"Sell signal at {current_time} for {symbol} ({interval})")
+                        sell = 0
+                    sell = sell+1
 
             await asyncio.sleep(60)
 
