@@ -10,31 +10,54 @@ quantity = 0.00012
 current_order_id = None
 order_status_open = False
 
+startTime = time.time() - (5 * 60)
+
 buy = 0
 sell = 0
+
+buy_final = 0
+sell_final = 0
+
+level = 6
+
+
+level_final = 2
+
+
 async def rsi_strategy(symbol, interval):
     global current_order_id
     global order_status_open
     global buy
     global sell
+    global buy_final
+    global sell_final
+    global level_final
+    global level
     while True:
         try:
             # Calculate RSI
-            rsi = get_and_calculate_rsi(symbol, interval)
+            rsi = get_and_calculate_rsi(
+                symbol=symbol, interval=interval, startTime=startTime)
             overbought_threshold = 70
             oversold_threshold = 30
 
             # Determine buy and sell signals
             buy_signal = np.where(rsi < oversold_threshold, 1, 0)
             sell_signal = np.where(rsi > overbought_threshold, 1, 0)
-           
+
             # Process signals
             for i in range(len(buy_signal)):
                 if buy_signal[i] == 1:
                     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    if buy >= 5:
+                    if buy >= level:
                         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"Buy signal at {current_time} for {symbol} ({interval})")
+                        print(f"Buy signal at {current_time} for { symbol} ({interval})")
+                        # if buy_final >= level_final:
+                        #     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        #     print(f"Buy signal at {current_time} for {
+                        #           symbol} ({interval})")
+                        #     buy_final = 0
+                        # buy_final = buy_final+1
                         buy = 0
                     buy = buy+1
 
@@ -42,9 +65,15 @@ async def rsi_strategy(symbol, interval):
 
                 elif sell_signal[i] == 1:
                     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    if sell >= 5:
+                    if sell >= level:
                         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         print(f"Sell signal at {current_time} for {symbol} ({interval})")
+                        # if sell_final >= level_final:
+                        #     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        #     print(f"Sell signal at {current_time} for {
+                        #           symbol} ({interval})")
+                        #     sell_final = 0
+                        # sell_final = sell_final + 1
                         sell = 0
                     sell = sell+1
 
@@ -91,7 +120,7 @@ async def moving_average_crossover_strategy(symbol, interval, short_window, long
         df = pd.DataFrame(response, columns=[
                           'time', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['time'], unit='ms')
-        df.set_index('time', inplace=True)
+        df.set_index('timestamp', inplace=True)
 
         signals = pd.DataFrame(index=df.index)
         signals['signal'] = 0.0
@@ -124,8 +153,9 @@ async def main():
     interval = "1m"
     await asyncio.gather(
         rsi_strategy(symbol, interval),
-        # Add more strategies here if needed
     )
+
+    
     # symbol = "BTC-USDT"
     # interval = "1m"
     # short_window = 40

@@ -28,7 +28,6 @@ def getLatestPrice(symbol):
     }
   
     response = requests.request("GET", url, headers=headers, data=payload)
-    print(json.loads(response.text))
     # last_price = (json.loads(response.text))['data']['tradePrice']
     # last_price = float(last_price)
     return 100
