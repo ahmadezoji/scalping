@@ -11,7 +11,7 @@ import json
 from enum import Enum
 
 
-OrderType = Enum('OrderType', ['LONG', 'SHORT'])
+OrderType = Enum('OrderType', ['LONG', 'SHORT','NONE'])
 
 
 # APIURL = "https://open-api.bingx.com"
