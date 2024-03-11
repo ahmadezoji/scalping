@@ -62,26 +62,27 @@ def ema_strategy():
     last_order_id = None
     order_type = OrderType.NONE
 
-    now = int(time.time() * 1000)
-    minutes_ago = 100
+    # now = int(time.time() * 1000)
+    # minutes_ago = 100
 
-    timestamp_120_min_ago = now - (minutes_ago * 60 * 1000)
+    # timestamp_120_min_ago = now - (minutes_ago * 60 * 1000)
 
-    def get_one(df):
-        for index, row in df.iterrows():
-            yield index, row['close']
+    # def get_one(df):
+    #     for index, row in df.iterrows():
+    #         yield index, row['close']
 
-    response = get_kline(symbol, interval, start=timestamp_120_min_ago)
-    response.raise_for_status()
-    response = response.json().get('data', [])
-    df = pd.DataFrame(response, columns=[
-        'time', 'open', 'high', 'low', 'close', 'volume'])
-    generator = get_one(df)
+    # response = get_kline(symbol, interval, start=timestamp_120_min_ago)
+    # response.raise_for_status()
+    # response = response.json().get('data', [])
+    # df = pd.DataFrame(response, columns=[
+    #     'time', 'open', 'high', 'low', 'close', 'volume'])
+    # generator = get_one(df)
 
     while True:
         try:
-            index, current_price = next(generator)
-            current_price = float(current_price)
+            # index, current_price = next(generator)
+            # current_price = float(current_price)
+            current_price = last_price(symbol=symbol)
 
             if previous_ema is not None:
                 ema9 = ema_for_current_price(
@@ -100,41 +101,35 @@ def ema_strategy():
                     sell_target_index = 0
                     if (buy_target_index >= 3):
                         if (order_type == OrderType.SHORT):
-                            # close_order(symbol=symbol,order_id=last_order_id)
+                            close_order(symbol=symbol,order_id=last_order_id)
                             order_type = OrderType.NONE
                             print(f'closed SHORT order id = {last_order_id} ')
                         if order_type == OrderType.NONE:
                             order_type = OrderType.LONG
-                            # last_order_id, order_type = open_long(
-                            #     symbol=symbol, quantity=amount)
+                            last_order_id, order_type = open_long(
+                                symbol=symbol, quantity=amount)
                             print(f'Buy signal at {current_time}')
-                    # if (buy_target_index == 2):
-                    #     if (order_type == OrderType.SHORT):
-                    #         # close_order(symbol=symbol,order_id=last_order_id)
-                    #         print(f'closed SHORT order id = {last_order_id} ')
+                 
                     buy_target_index = buy_target_index + 1
 
                 if sell_signal:
                     buy_target_index = 0
                     if (sell_target_index >= 3):
                         if (order_type == OrderType.LONG):
-                            # close_order(symbol=symbol,order_id=last_order_id)
+                            close_order(symbol=symbol,order_id=last_order_id)
                             order_type = OrderType.NONE
                             print(f'closed LONG order id = {last_order_id} ')
                         if order_type == OrderType.NONE:
-                            # last_order_id, order_type = open_short(
-                            #     symbol=symbol, quantity=amount)
+                            last_order_id, order_type = open_short(
+                                symbol=symbol, quantity=amount)
                             order_type = OrderType.SHORT
                             print(f'Sell signal at {current_time}')
-                    # if (sell_target_index == 2):
-                        # if (order_type == OrderType.LONG):
-                        #     # close_order(symbol=symbol,order_id=last_order_id)
-                        #     print(f'closed LONG order id = {last_order_id} ')
+                 
                     sell_target_index = sell_target_index + 1
 
             previous_ema = current_price
 
-            time.sleep(1)
+            time.sleep(60)
 
         except StopIteration:
             break
