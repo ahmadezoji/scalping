@@ -4,7 +4,7 @@ import time
 import datetime
 import asyncio
 from bingx import *
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 
 def ema_for_current_price(current_price, previous_ema, span):
@@ -54,7 +54,7 @@ global order_type
 def ema_strategy():
     symbol = "BTC-USDT"
     interval = "1m"
-    amount = 0.0015  # in btc = 68380 ==> 100$
+    amount = 0.014  # in btc = 72068 ==> 1000$
     span = 9
     previous_ema = None
     buy_target_index = 0
@@ -62,6 +62,7 @@ def ema_strategy():
     last_order_id = None
     order_type = OrderType.NONE
 
+    treshhold = 2
     # now = int(time.time() * 1000)
     # minutes_ago = 100
 
@@ -99,11 +100,12 @@ def ema_strategy():
 
                 if buy_signal:
                     sell_target_index = 0
-                    if (buy_target_index >= 3):
+                    if (buy_target_index >= treshhold):
                         if (order_type == OrderType.SHORT):
-                            close_order(symbol=symbol,order_id=last_order_id)
-                            order_type = OrderType.NONE
-                            print(f'closed SHORT order id = {last_order_id} ')
+                            result = close_short(symbol=symbol,quantity=amount)
+                            if(result == 0):
+                                order_type = OrderType.NONE
+                                print(f'closed SHORT order id = {last_order_id} ')
                         if order_type == OrderType.NONE:
                             order_type = OrderType.LONG
                             last_order_id, order_type = open_long(
@@ -114,11 +116,12 @@ def ema_strategy():
 
                 if sell_signal:
                     buy_target_index = 0
-                    if (sell_target_index >= 3):
+                    if (sell_target_index >= treshhold):
                         if (order_type == OrderType.LONG):
-                            close_order(symbol=symbol,order_id=last_order_id)
-                            order_type = OrderType.NONE
-                            print(f'closed LONG order id = {last_order_id} ')
+                            result = close_long(symbol=symbol,quantity=amount)
+                            if(result == 0):
+                                order_type = OrderType.NONE
+                                print(f'closed LONG order id = {last_order_id} ')
                         if order_type == OrderType.NONE:
                             last_order_id, order_type = open_short(
                                 symbol=symbol, quantity=amount)
@@ -145,7 +148,7 @@ def plot_close_data_with_signals(close_data, buy_indices, sell_indices):
         sell_indices (list or array-like): List or array of indices where sell signals occur.
     """
     # Plot 'close' data
-    plt.plot(close_data, label='Close')
+    # plt.plot(close_data, label='Close')
 
     # # Highlight buy signals
     # for idx in buy_indices:
@@ -158,14 +161,14 @@ def plot_close_data_with_signals(close_data, buy_indices, sell_indices):
     #                 marker='v', label='Sell Signal')
 
     # Add labels and legend
-    plt.title('Close Data with Buy and Sell Signals')
-    plt.xlabel('Index')
-    plt.ylabel('Close Price')
-    plt.legend()
-    plt.grid(True)
+    # plt.title('Close Data with Buy and Sell Signals')
+    # plt.xlabel('Index')
+    # plt.ylabel('Close Price')
+    # plt.legend()
+    # plt.grid(True)
 
-    # Show plot
-    plt.show()
+    # # Show plot
+    # plt.show()
 
 
 async def main():

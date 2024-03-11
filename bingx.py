@@ -115,7 +115,23 @@ def close_long(symbol, quantity):
     }
     paramsStr = praseParam(paramsMap)
     response = send_request(method, path, paramsStr, payload)
-    return response
+    return response.json().get('code')
+
+def close_short(symbol, quantity):
+    payload = {}
+    path = '/openApi/swap/v2/trade/order'
+    method = "POST"
+    paramsMap = {
+        "symbol": symbol,
+        "side": "BUY",
+        "positionSide": "SHORT",
+        "type": "MARKET",
+        "quantity": quantity,
+        "timestamp": str(int(time.time() * 1000))
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response.json().get('code')
 
 
 def close_all_order(symbol):
@@ -147,22 +163,25 @@ def check_order_status(symbol, order_id):
 
 
 def close_order(symbol, order_id):
-    order_status_response = check_order_status(symbol, order_id)
+    # order_status_response = check_order_status(symbol, order_id)
     # Check if the order is still active before attempting to cancel
-    if order_status_response.json().get('status') == 'NEW':
+    # print(f'order_status_response = {order_status_response.text}')
+    # if order_status_response.json().get('status') == 'NEW':
         # Continue with the cancel order logic
-        payload = {}
-        path = '/openApi/swap/v2/trade/order'
-        method = "DELETE"
-        params_map = {
-            "orderId": order_id,
-            "symbol": symbol,
-            "timestamp": str(int(time.time() * 1000))
-        }
-        params_str = praseParam(params_map)
-        return send_request(method, path, params_str, payload)
-    else:
-        print(f"Order {order_id} is not active and cannot be canceled.")
+    payload = {}
+    path = '/openApi/swap/v2/trade/order'
+    method = "DELETE"
+    params_map = {
+        "orderId": order_id,
+        "symbol": symbol,
+        "timestamp": str(int(time.time() * 1000))
+    }
+    params_str = praseParam(params_map)
+    response = send_request(method, path, params_str, payload)
+    print(f'close order result = {response.text}')
+        # return send_request(method, path, params_str, payload)
+    # else:
+        # print(f"Order {order_id} is not active and cannot be canceled.")
 
 
 
