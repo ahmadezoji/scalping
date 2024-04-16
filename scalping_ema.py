@@ -58,7 +58,7 @@ def emaFinal():
     order_type = OrderType.NONE
     now = int(time.time() * 1000)
     minutes_ago = 10
-    treshhold = 2
+    treshhold = 3
     durationTime = now - (minutes_ago * 60 * 1000)
 
     while True:
@@ -75,7 +75,6 @@ def emaFinal():
 
 
             # Calculate RSI
-            # df['close'] = df['close'].astype(float)
             # delta = df['close'].diff()
             # gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             # loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -83,8 +82,8 @@ def emaFinal():
             # df['RSI'] = 100 - (100 / (1 + RS))
 
             # Generate signals
-            # & (df['RSI'] < 31)
-            # & (df['RSI'] > 69)
+            # & (df['RSI'.iloc[-1]] < 31)
+            # & (df['RSI'.iloc[-1]] > 69)
 
             ema9 = df['ema9'].iloc[-1]
             current_price = last_price(symbol=symbol)
@@ -101,14 +100,14 @@ def emaFinal():
                 sell_target_index = 0
                 if (buy_target_index >= treshhold):
                     if (order_type == OrderType.SHORT):
-                        # result = close_short(symbol=symbol,quantity=amount)
-                        # if(result == 0):
-                        order_type = OrderType.NONE
-                        print(f'closed SHORT order id = {last_order_id} ')
+                        result = close_short(symbol=symbol,quantity=amount)
+                        if(result == 0):
+                            order_type = OrderType.NONE
+                            print(f'closed SHORT order id = {last_order_id} ')
                     if order_type == OrderType.NONE:
                         order_type = OrderType.LONG
-                        # last_order_id, order_type = open_long(
-                            # symbol=symbol, quantity=amount)
+                        last_order_id, order_type = open_long(
+                            symbol=symbol, quantity=amount)
                         print(f'Buy signal at {current_time}')
                 buy_target_index = buy_target_index + 1
 
@@ -116,13 +115,13 @@ def emaFinal():
                 buy_target_index = 0
                 if (sell_target_index >= treshhold):
                     if (order_type == OrderType.LONG):
-                        # result = close_long(symbol=symbol,quantity=amount)
-                        # if(result == 0):
-                        order_type = OrderType.NONE
-                        print(f'closed LONG order id = {last_order_id} ')
+                        result = close_long(symbol=symbol,quantity=amount)
+                        if(result == 0):
+                            order_type = OrderType.NONE
+                            print(f'closed LONG order id = {last_order_id} ')
                     if order_type == OrderType.NONE:
-                        # last_order_id, order_type = open_short(
-                            # symbol=symbol, quantity=amount)
+                        last_order_id, order_type = open_short(
+                            symbol=symbol, quantity=amount)
                         order_type = OrderType.SHORT
                         print(f'Sell signal at {current_time}') 
                 sell_target_index = sell_target_index + 1
@@ -134,10 +133,10 @@ def emaFinal():
 
 async def main():
     await asyncio.gather(
-    emaFinal()
+        emaFinal()
     )
 
 
 if __name__ == '__main__':
-    # asyncio.run(main())
-    emaChart()
+    asyncio.run(main())
+    # emaChart()
