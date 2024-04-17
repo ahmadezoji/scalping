@@ -58,7 +58,7 @@ def emaFinal():
     order_type = OrderType.NONE
     now = int(time.time() * 1000)
     minutes_ago = 10
-    treshhold = 3
+    treshhold = 2
     durationTime = now - (minutes_ago * 60 * 1000)
 
     while True:
