@@ -4,47 +4,47 @@ import time
 import datetime
 import asyncio
 from bingx import *
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 
 global last_order_id
 global order_type
 
-# def emaChart():
-#     symbol = "BTC-USDT"
-#     interval = "1m"
-#     span = 15
-#     now = int(time.time() * 1000)
-#     minutes_ago = 100
+def emaChart():
+    symbol = "BTC-USDT"
+    interval = "1m"
+    span = 9
+    now = int(time.time() * 1000)
+    minutes_ago = 200
 
-#     durationTime = now - (minutes_ago * 60 * 1000)
-#     response = get_kline(symbol, interval, start=durationTime)
-#     response.raise_for_status()
-#     response = response.json().get('data', [])
-#     df = pd.DataFrame(response, columns=[
-#         'time', 'open', 'high', 'low', 'close', 'volume'])
-#     df['time'] = pd.to_datetime(df['time'], unit='ms')
-#     df.set_index('time', inplace=True)
+    durationTime = now - (minutes_ago * 60 * 1000)
+    response = get_kline(symbol, interval, start=durationTime)
+    response.raise_for_status()
+    response = response.json().get('data', [])
+    df = pd.DataFrame(response, columns=[
+        'time', 'open', 'high', 'low', 'close', 'volume'])
+    df['time'] = pd.to_datetime(df['time'], unit='ms')
+    df.set_index('time', inplace=True)
 
 
-#     df['close'] = df['close'].astype(float)
+    df['close'] = df['close'].astype(float)
     
 
     
-#     # Calculate EMA9
-#     df['ema9'] = df['close'].ewm(span=span, adjust=False).mean()
+    # Calculate EMA9
+    df['ema9'] = df['close'].ewm(span=span, adjust=False).mean()
     
-#     # Plotting
-#     plt.figure(figsize=(12, 6))
-#     plt.plot(df.index, df['close'], label='Close Price', color='blue')
-#     plt.plot(df.index, df['ema9'], label='EMA9', color='red')
-#     plt.title('Close Price vs EMA9')
-#     plt.xlabel('Time')
-#     plt.ylabel('Price')
-#     plt.legend()
-#     plt.show()
+    # Plotting
+    plt.figure(figsize=(12, 6))
+    plt.plot(df.index, df['close'], label='Close Price', color='blue')
+    plt.plot(df.index, df['ema9'], label='EMA9', color='red')
+    plt.title('Close Price vs EMA9')
+    plt.xlabel('Time')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.show()
 
-#     return df
+    return df
 
 def emaFinal():
     symbol = "BTC-USDT"
@@ -73,7 +73,7 @@ def emaFinal():
             df['close'] = df['close'].astype(float)
             df['ema9'] = df['close'].ewm(span=span, adjust=False).mean()
 
-
+            
             # Calculate RSI
             # delta = df['close'].diff()
             # gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -138,5 +138,5 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
-    # emaChart()
+    # asyncio.run(main())
+    emaChart()
