@@ -12,9 +12,9 @@ global order_type
 
 def stochastic_oscillator_chart():
     symbol = "BTC-USDT"
-    interval = "1m"
+    interval = "5m"
     now = int(time.time() * 1000)
-    minutes_ago = 100
+    minutes_ago = 1440
 
     durationTime = now - (minutes_ago * 60 * 1000)
     response = get_kline(symbol, interval, start=durationTime)

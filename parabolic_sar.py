@@ -6,28 +6,28 @@ import asyncio
 from bingx import *
 import matplotlib.pyplot as plt
 
-def plot():
-    # signals = generate_signals(df=df,sar=sar)
+def plot(df,sar,signals):
 
-    # plt.figure(figsize=(12, 6))
-    # plt.plot(df.index, df['close'], label='Close Price', color='blue')
+    plt.figure(figsize=(12, 6))
     
-    # # Plot buy signals
-    # plt.plot(signals.index[signals['Signal'] == 1], 
-    #          signals['Price'][signals['Signal'] == 1], 
-    #          '^', markersize=10, color='g', lw=0, label='Buy Signal')
+    plt.plot(df.index, df['close'], label='Close Price', color='blue')
     
-    # # Plot sell signals
-    # plt.plot(signals.index[signals['Signal'] == -1], 
-    #          signals['Price'][signals['Signal'] == -1], 
-    #          'v', markersize=10, color='r', lw=0, label='Sell Signal')
+    # Plot buy signals
+    plt.plot(signals.index[signals['Signal'] == 1], 
+             signals['Price'][signals['Signal'] == 1], 
+             '^', markersize=10, color='g', lw=0, label='Buy Signal')
     
-    # plt.title('Close Price with Buy/Sell Signals')
-    # plt.xlabel('Date')
-    # plt.ylabel('Price')
-    # plt.legend()
-    # plt.grid(True)
-    # plt.show() 
+    # Plot sell signals
+    plt.plot(signals.index[signals['Signal'] == -1], 
+             signals['Price'][signals['Signal'] == -1], 
+             'v', markersize=10, color='r', lw=0, label='Sell Signal')
+    
+    plt.title('Close Price with Buy/Sell Signals')
+    plt.xlabel('Date')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.grid(True)
+    plt.show() 
 
     # plt.figure(figsize=(10, 6))
     # plt.plot(df['time'], df['close'], label='Close Price')
@@ -78,13 +78,20 @@ def generate_signals(df, sar):
     signals['SAR'] = sar
     signals['Signal'] = 0
     
-    for i in range(1, len(signals)):
-        if signals['Price'].iloc[i] > signals['SAR'].iloc[i] and signals['Price'].iloc[i - 1] <= signals['SAR'].iloc[i - 1]:
-            signals['Signal'].iloc[i] = 1  # Buy signal
-        elif signals['Price'].iloc[i] < signals['SAR'].iloc[i] and signals['Price'].iloc[i - 1] >= signals['SAR'].iloc[i - 1]:
-            signals['Signal'].iloc[i] = -1  # Sell signal
+    # Buy signal condition
+    buy_condition = (signals['Price'] > signals['SAR']) & (signals['Price'].shift(1) <= signals['SAR'].shift(1))
     
-    return signals
+    # Sell signal condition
+    sell_condition = (signals['Price'] < signals['SAR']) & (signals['Price'].shift(1) >= signals['SAR'].shift(1))
+    
+    # Set buy signals
+    signals.loc[buy_condition, 'Signal'] = 1
+    
+    # Set sell signals
+    signals.loc[sell_condition, 'Signal'] = -1
+    
+    return signals['Signal'].iloc[-1]
+    
 
 async def prepare():
     await asyncio.gather(
@@ -95,41 +102,62 @@ def startStrategy():
     symbol = "BTC-USDT"
     interval = "1m"
     now = int(time.time() * 1000)
-    minutes_ago = 20
+    minutes_ago = 100
     durationTime = now - (minutes_ago * 60 * 1000)
    
+    amount = 0.016  # in btc = 63675 ==> 1000$
+    last_order_id = None
+    order_type = OrderType.NONE
 
     while True:
        try:
+            durationTime = now - (minutes_ago * 60 * 1000)
             response = get_kline(symbol, interval, start=durationTime)
             response.raise_for_status()
             response = response.json().get('data', [])
             df = pd.DataFrame(response, columns=[
                 'time', 'open', 'high', 'low', 'close', 'volume'])
             df['time'] = pd.to_datetime(df['time'], unit='ms')
-            df.set_index('time', inplace=False)
 
+            df.set_index('time', inplace=True)
             df['close'] = df['close'].astype(float)
             df['low'] = df['low'].astype(float)
             df['high'] = df['high'].astype(float)
 
-        
             sar = calculate_sar(df)
-            signals = generate_signals(df, sar)
-            
-            last_signal = signals['Signal'].iloc[-1]
+            last_signal = generate_signals(df, sar)
+            # plot(df=df,sar=sar,signals=signals)
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             
             if last_signal == 1:
                 print("Buy")
-                # Execute buy order
+                if (order_type == OrderType.SHORT):
+                    result = close_short(symbol=symbol,quantity=amount)
+                    if(result == 0):
+                        order_type = OrderType.NONE
+                        print(f'closed SHORT order id = {last_order_id} ')
+                if order_type == OrderType.NONE:
+                    order_type = OrderType.LONG
+                    last_order_id, order_type = open_long(
+                        symbol=symbol, quantity=amount)
+                    print(f'Buy signal at {current_time}')
             elif last_signal == -1:
                 print("Sell")
-                signals.loc[signals.index[-1], 'Signal'] = -1  
-                # Execute sell order
+                if (order_type == OrderType.LONG):
+                        result = close_long(symbol=symbol,quantity=amount)
+                        if(result == 0):
+                            order_type = OrderType.NONE
+                            print(f'closed LONG order id = {last_order_id} ')
+                if order_type == OrderType.NONE:
+                    last_order_id, order_type = open_short(
+                        symbol=symbol, quantity=amount)
+                    order_type = OrderType.SHORT
+                    print(f'Sell signal at {current_time}') 
             else:
                 print("No signal")
 
-            time.sleep(10)
+            time.sleep(60)
        except StopIteration:
             break    
     
