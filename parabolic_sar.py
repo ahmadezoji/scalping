@@ -6,27 +6,42 @@ import asyncio
 from bingx import *
 import matplotlib.pyplot as plt
 
+def plot():
+    # signals = generate_signals(df=df,sar=sar)
 
+    # plt.figure(figsize=(12, 6))
+    # plt.plot(df.index, df['close'], label='Close Price', color='blue')
+    
+    # # Plot buy signals
+    # plt.plot(signals.index[signals['Signal'] == 1], 
+    #          signals['Price'][signals['Signal'] == 1], 
+    #          '^', markersize=10, color='g', lw=0, label='Buy Signal')
+    
+    # # Plot sell signals
+    # plt.plot(signals.index[signals['Signal'] == -1], 
+    #          signals['Price'][signals['Signal'] == -1], 
+    #          'v', markersize=10, color='r', lw=0, label='Sell Signal')
+    
+    # plt.title('Close Price with Buy/Sell Signals')
+    # plt.xlabel('Date')
+    # plt.ylabel('Price')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.show() 
 
-def calculate_sar( af_start=0.02, af_increment=0.02, af_maximum=0.2):
-    symbol = "BTC-USDT"
-    interval = "1m"
-    now = int(time.time() * 1000)
-    minutes_ago = 500
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(df['time'], df['close'], label='Close Price')
+    # plt.plot(df['time'], sar, label='Parabolic SAR', color='orange')
+    # plt.title('Parabolic SAR Indicator')
+    # plt.xlabel('Time')
+    # plt.ylabel('Price')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.show()
+    return
 
-    durationTime = now - (minutes_ago * 60 * 1000)
-    response = get_kline(symbol, interval, start=durationTime)
-    response.raise_for_status()
-    response = response.json().get('data', [])
-    df = pd.DataFrame(response, columns=[
-        'time', 'open', 'high', 'low', 'close', 'volume'])
-    df['time'] = pd.to_datetime(df['time'], unit='ms')
-    df.set_index('time', inplace=False)
-
-    df['close'] = df['close'].astype(float)
-    df['low'] = df['low'].astype(float)
-    df['high'] = df['high'].astype(float)
-    sar = np.full(len(df), np.nan, dtype=float)  # Initialize sar array with nan values
+def calculate_sar(df, af_start=0.02, af_increment=0.02, af_maximum=0.2):
+    sar = np.full(len(df), np.nan, dtype=float) 
     trend = 'up'
     af = af_start
     extreme_point = df['high'].iloc[0]
@@ -54,36 +69,7 @@ def calculate_sar( af_start=0.02, af_increment=0.02, af_maximum=0.2):
                 extreme_point = min(extreme_point, df['low'].iloc[i])
                 af = min(af + af_increment, af_maximum)
     
-    signals = generate_signals(df=df,sar=sar)
-    plt.figure(figsize=(12, 6))
-    plt.plot(df.index, df['close'], label='Close Price', color='blue')
     
-    # Plot buy signals
-    plt.plot(signals.index[signals['Signal'] == 1], 
-             signals['Price'][signals['Signal'] == 1], 
-             '^', markersize=10, color='g', lw=0, label='Buy Signal')
-    
-    # Plot sell signals
-    plt.plot(signals.index[signals['Signal'] == -1], 
-             signals['Price'][signals['Signal'] == -1], 
-             'v', markersize=10, color='r', lw=0, label='Sell Signal')
-    
-    plt.title('Close Price with Buy/Sell Signals')
-    plt.xlabel('Date')
-    plt.ylabel('Price')
-    plt.legend()
-    plt.grid(True)
-    plt.show() 
-    
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(df['time'], df['close'], label='Close Price')
-    # plt.plot(df['time'], sar, label='Parabolic SAR', color='orange')
-    # plt.title('Parabolic SAR Indicator')
-    # plt.xlabel('Time')
-    # plt.ylabel('Price')
-    # plt.legend()
-    # plt.grid(True)
-    # plt.show()
     return sar
 
 def generate_signals(df, sar):
@@ -100,5 +86,53 @@ def generate_signals(df, sar):
     
     return signals
 
+async def prepare():
+    await asyncio.gather(
+        startStrategy()
+    )
+
+def startStrategy():
+    symbol = "BTC-USDT"
+    interval = "1m"
+    now = int(time.time() * 1000)
+    minutes_ago = 20
+    durationTime = now - (minutes_ago * 60 * 1000)
+   
+
+    while True:
+       try:
+            response = get_kline(symbol, interval, start=durationTime)
+            response.raise_for_status()
+            response = response.json().get('data', [])
+            df = pd.DataFrame(response, columns=[
+                'time', 'open', 'high', 'low', 'close', 'volume'])
+            df['time'] = pd.to_datetime(df['time'], unit='ms')
+            df.set_index('time', inplace=False)
+
+            df['close'] = df['close'].astype(float)
+            df['low'] = df['low'].astype(float)
+            df['high'] = df['high'].astype(float)
+
+        
+            sar = calculate_sar(df)
+            signals = generate_signals(df, sar)
+            
+            last_signal = signals['Signal'].iloc[-1]
+            
+            if last_signal == 1:
+                print("Buy")
+                # Execute buy order
+            elif last_signal == -1:
+                print("Sell")
+                signals.loc[signals.index[-1], 'Signal'] = -1  
+                # Execute sell order
+            else:
+                print("No signal")
+
+            time.sleep(10)
+       except StopIteration:
+            break    
+    
+
 if __name__ == '__main__':
-    calculate_sar()
+    asyncio.run(prepare())
