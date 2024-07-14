@@ -15,7 +15,7 @@ def emaChart():
     interval = "1m"
     span = 9
     now = int(time.time() * 1000)
-    minutes_ago = 200
+    minutes_ago = 500
 
     durationTime = now - (minutes_ago * 60 * 1000)
     response = get_kline(symbol, interval, start=durationTime)
@@ -30,14 +30,15 @@ def emaChart():
     df['close'] = df['close'].astype(float)
     
 
-    
     # Calculate EMA9
     df['ema9'] = df['close'].ewm(span=span, adjust=False).mean()
-    
+    df['ema9_shifted'] = df['ema9'].shift(-8) 
+
+
     # Plotting
     plt.figure(figsize=(12, 6))
     plt.plot(df.index, df['close'], label='Close Price', color='blue')
-    plt.plot(df.index, df['ema9'], label='EMA9', color='red')
+    plt.plot(df.index, df['ema9_shifted'], label='EMA9', color='red')
     plt.title('Close Price vs EMA9')
     plt.xlabel('Time')
     plt.ylabel('Price')
@@ -45,6 +46,9 @@ def emaChart():
     plt.show()
 
     return df
+def calculate_ema(current_close, previous_ema, span):
+    alpha = 2 / (span + 1)
+    return (current_close - previous_ema) * alpha + previous_ema
 
 def emaFinal():
     symbol = "BTC-USDT"
@@ -72,7 +76,9 @@ def emaFinal():
             df.set_index('time', inplace=True)
             df['close'] = df['close'].astype(float)
             df['ema9'] = df['close'].ewm(span=span, adjust=False).mean()
-
+            df['ema9_shifted'] = df['ema9'].shift(-8) 
+            # print( df['ema9'])
+            # print( df['ema9_shifted'] )
             
             # Calculate RSI
             # delta = df['close'].diff()
@@ -85,13 +91,18 @@ def emaFinal():
             # & (df['RSI'.iloc[-1]] < 31)
             # & (df['RSI'.iloc[-1]] > 69)
 
-            ema9 = df['ema9'].iloc[-1]
+            # ema9 = df['ema9_shifted'].iloc[-1]
+            last_valid_ema = df['ema9_shifted'].dropna().iloc[-1]
             current_price = last_price(symbol=symbol)
-
-            buy_signal = current_price > ema9
-            sell_signal = current_price < ema9
+            # print( df['ema9_shifted'])
+            
+            # new_ema = calculate_ema(current_price, last_valid_ema, span)
+            # print(new_ema)
+            buy_signal = current_price > last_valid_ema
+            sell_signal = current_price < last_valid_ema
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+            
+           
             if buy_signal:
                 print("buy")
             if sell_signal:
@@ -129,7 +140,8 @@ def emaFinal():
             time.sleep(60)
        except StopIteration:
             break    
-    
+
+
 
 async def main():
     await asyncio.gather(
@@ -138,5 +150,6 @@ async def main():
 
 
 if __name__ == '__main__':
-    # asyncio.run(main())
-    emaChart()
+    asyncio.run(main())
+    # emaChart()
+   

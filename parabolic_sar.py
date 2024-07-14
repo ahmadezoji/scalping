@@ -71,27 +71,21 @@ def calculate_sar(df, af_start=0.02, af_increment=0.02, af_maximum=0.2):
     
     
     return sar
-
 def generate_signals(df, sar):
     signals = pd.DataFrame(index=df.index)
     signals['Price'] = df['close']
     signals['SAR'] = sar
     signals['Signal'] = 0
     
-    # Buy signal condition
+    # Define buy and sell conditions
     buy_condition = (signals['Price'] > signals['SAR']) & (signals['Price'].shift(1) <= signals['SAR'].shift(1))
-    
-    # Sell signal condition
     sell_condition = (signals['Price'] < signals['SAR']) & (signals['Price'].shift(1) >= signals['SAR'].shift(1))
     
-    # Set buy signals
+    # Apply conditions
     signals.loc[buy_condition, 'Signal'] = 1
-    
-    # Set sell signals
     signals.loc[sell_condition, 'Signal'] = -1
     
     return signals['Signal'].iloc[-1]
-    
 
 async def prepare():
     await asyncio.gather(
