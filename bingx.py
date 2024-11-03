@@ -187,19 +187,22 @@ def close_order(symbol, order_id):
 
 
 def last_price(symbol):
-    payload = {}
-    path = '/openApi/swap/v1/ticker/price'
-    method = "GET"
-    paramsMap = {
-    "timestamp": str(int(time.time() * 1000)),
-    "symbol": symbol
-    }
-    paramsStr = praseParam(paramsMap)
-    response =  send_request(method, path, paramsStr, payload)
+    try:
+        payload = {}
+        path = '/openApi/swap/v1/ticker/price'
+        method = "GET"
+        paramsMap = {
+        "timestamp": str(int(time.time() * 1000)),
+        "symbol": symbol
+        }
+        paramsStr = praseParam(paramsMap)
+        response =  send_request(method, path, paramsStr, payload)
 
 
-    last_price =  (json.loads(response.text))['data']['price']
-    return float(last_price)
+        last_price =  (json.loads(response.text))['data']['price']
+        return float(last_price)
+    except Exception as e:
+        raise
     
     
    
@@ -220,14 +223,16 @@ def get_server_time():
     return data.get('serverTime', {})
 
 
-def get_kline(symbol, interval,start=str(int(time.time() * 1000))):
+def get_kline(symbol, interval,limit,start=str(int(time.time() * 1000))):
     server_time = get_server_time()
+    start
     payload = {}
     path = '/openApi/swap/v3/quote/klines'
     method = "GET"
     paramsMap = {
         "symbol": symbol,
         "interval": interval,
+        "limit": limit,
         "startTime":start
     }
     

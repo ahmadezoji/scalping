@@ -31,7 +31,7 @@ def make_trade_decision(sma5, sma8, sma13):
         # Here, you would add code to place a buy order via the API
     elif sma5 < sma8 < sma13:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info(f'clSell signal generated. SMAs indicate a strong downward trend. {current_time}')
+        logger.info(f'Sell signal generated. SMAs indicate a strong downward trend. {current_time}')
         # Here, you would add code to place a sell order via the API
     else:
         logger.info("No clear trend. Waiting for better conditions.")
