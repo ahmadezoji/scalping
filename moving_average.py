@@ -5,15 +5,26 @@ import logging
 from bingx import *
 from datetime import datetime, timedelta
 
+
+
+
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 
 KLINES_ENDPOINT = "/v1/klines"
 SYMBOL = "BTC-USDT"
 INTERVAL = "1m"
 LIMIT = 50  # Fetch 50 data points
+AMOUNT_USDT = 100 #usdt
+
+order_type = OrderType.NONE
+last_order_id = None
+count_of_long = 1 
+count_of_short = 1 
 
 
 # Function to calculate moving averages
@@ -26,16 +37,51 @@ def calculate_moving_averages(klines):
 
 # Function to make trading decisions
 def make_trade_decision(sma5, sma8, sma13):
-    # if sma5 > sma8 > sma13:
-    if sma5  > sma13:
+    global order_type
+    global last_order_id 
+    global count_of_long
+    global count_of_short
+    # amount = round(AMOUNT_USDT / last_price(symbol=SYMBOL), 5)
+    amount = 0.0014
+
+   
+    if sma5 > sma8 > sma13:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logger.info(f'Buy signal generated. SMAs indicate a strong upward trend.in this time {current_time}')
         # Here, you would add code to place a buy order via the API
-    # elif sma5 < sma8 < sma13:
-    elif sma5  < sma13:
+        if (order_type == OrderType.SHORT):
+            result = close_short(symbol=SYMBOL, quantity=amount*count_of_short)
+            if(result == 0):
+                order_type = OrderType.NONE
+                logger.info(f'closed SHORT order id = {last_order_id} ')
+                count_of_short=1
+
+
+        order_type = OrderType.LONG
+        last_order_id, order_type = open_long(symbol=SYMBOL, quantity=amount)        
+        count_of_long = count_of_long + 1
+        logger.info(f'LONG opened at {current_time}')
+        
+                        
+
+
+    elif sma5  < sma8 <  sma13:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logger.info(f'Sell signal generated. SMAs indicate a strong downward trend. {current_time}')
         # Here, you would add code to place a sell order via the API
+        if (order_type == OrderType.LONG):
+            result = close_long(symbol=SYMBOL, quantity=amount*count_of_long)
+            if(result == 0):
+                order_type = OrderType.NONE
+                logger.info(f'closed LONG order id = {last_order_id}')
+                count_of_long=1
+
+
+        order_type = OrderType.SHORT
+        last_order_id, order_type = open_short(symbol=SYMBOL, quantity=amount)   
+        count_of_short = count_of_short + 1     
+        logger.info(f'SHORT opened at {current_time}')
+
     else:
         logger.info("No clear trend. Waiting for better conditions.")
 
@@ -45,19 +91,13 @@ async def main():
         while True:
             try:
                 past_time_ms = int(time.time() * 1000) - (LIMIT * 60 * 1000)  # 50 minutes ago
-                # Calculate the past time in UTC for 50 minutes ago
-                # past_time_utc = datetime.utcnow() - timedelta(minutes=50)
-                # past_time_ms = int(past_time_utc.timestamp() * 1000)  # Convert to milliseconds
-
-
                 klines = get_kline(symbol=SYMBOL, interval=INTERVAL,limit=LIMIT,start=past_time_ms)
                 klines.raise_for_status()
                 klines = klines.json().get('data', [])
                 last = last_price(symbol=SYMBOL)
                 klines.reverse()
                 if klines:
-                    sma5, sma8, sma13 = calculate_moving_averages(klines)
-                   
+                    sma5, sma8, sma13 = calculate_moving_averages(klines)                   
                     logger.info(f"PRICES:{last} SMA5: {sma5}, SMA8: {sma8}, SMA13: {sma13}")
                     make_trade_decision(sma5, sma8, sma13)
                 else:
@@ -70,6 +110,16 @@ async def main():
             except Exception as e:
                 logger.exception("Unexpected error occurred in main loop. Continuing...")
 
+
+# Run the async loop
+if __name__ == "__main__":
+    try:
+        # asyncio.run(back_test(symbol=SYMBOL))
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Trading bot stopped manually.")
+    except Exception as e:
+        logger.exception("Critical error. Bot stopped.")
 
 
 # Function for backtesting and plotting the results
@@ -113,13 +163,3 @@ async def back_test(symbol, interval="1m"):
     plt.grid(True)
     plt.show()
 
-
-# Run the async loop
-if __name__ == "__main__":
-    try:
-        # asyncio.run(back_test(symbol=SYMBOL))
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Trading bot stopped manually.")
-    except Exception as e:
-        logger.exception("Critical error. Bot stopped.")

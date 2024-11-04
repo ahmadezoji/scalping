@@ -16,8 +16,8 @@ OrderType = Enum('OrderType', ['LONG', 'SHORT','NONE'])
 
 # APIURL = "https://open-api.bingx.com"
 APIURL = "https://open-api-vst.bingx.com"
-APIKEY = 'CGRMVGm69DTMVYB6nAUbgOzfnXVBz0dY2NLVd1jG0JaJpInitIzxxuciPArmFiFldTjR5WqHXQMY0FcFuQ'
-SECRETKEY = 'cZg6feI0YVG6H7x8OQuR7gFv84rYHn9q5Gi38WgWQ7guy4l5mV9r2kijbN56Tt3ZnKByVtVuDO60x0taflMMw'
+APIKEY = 'wHFRkNEkZYDSAwfenDsVAhkPDMPoAWfwQnpNF5VE0vmlJpZyhFJxQ1g4lIRQVlVTHl3vekzs13GVSET8FiJ6Q'
+SECRETKEY = '8RDSme2ZKpbKwgJX4KdW4hNMYHGrjHJxYk2aNF7z2butlCRnLN0pHuikvcNwfJ5TIAHVS2kfGzDBuOxwuOfGpA'
 
 
 

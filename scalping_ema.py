@@ -53,7 +53,10 @@ def calculate_ema(current_close, previous_ema, span):
 def emaFinal():
     symbol = "BTC-USDT"
     interval = "1h"
+    
     amount = 0.014  # in btc = 72068 ==> 1000$
+    order_type = OrderType.NONE
+
     span = 20  # Adjusted for 1-hour time frame
     previous_ema = None
     buy_target_index = 0
