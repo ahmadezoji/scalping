@@ -225,7 +225,6 @@ def get_server_time():
 
 def get_kline(symbol, interval,limit,start=str(int(time.time() * 1000))):
     server_time = get_server_time()
-    start
     payload = {}
     path = '/openApi/swap/v3/quote/klines'
     method = "GET"

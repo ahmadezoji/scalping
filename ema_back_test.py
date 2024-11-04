@@ -14,20 +14,20 @@ global order_type
 
 def ema_backtest():
     symbol = "BTC-USDT"
-    interval = "1h"
+    interval = "15m"  # 15-minute interval
     amount = 0.014  # in btc = 72068 ==> 1000$
-    span_short = 20  # Short-term EMA for signal detection
-    span_long = 50  # Long-term EMA for trend confirmation
-    treshhold = 3  # Reduce threshold to allow more signals
-    buffer_percentage = 0.005  # 0.5% buffer to avoid small fluctuations
+    span_short = 9  # Short-term EMA for 15-minute time frame
+    span_long = 21  # Long-term EMA for 15-minute time frame
+    treshhold = 2  # Reduced threshold for shorter time frame
+    buffer_percentage = 0.003  # Smaller buffer for quicker signals in 15m frame
     order_type = OrderType.NONE
     buy_target_index = 0
     sell_target_index = 0
     last_order_id = None
 
     now = int(time.time() * 1000)
-    hours_ago = 240  # Backtest for the last 240 hours (~10 days)
-    durationTime = now - (hours_ago * 60 * 60 * 1000)
+    minutes_ago = 60 * 24 * 10  # Backtest for the last 5 days (15-minute intervals)
+    durationTime = now - (minutes_ago * 60 * 1000)
 
     buy_signals = []
     sell_signals = []
@@ -42,27 +42,25 @@ def ema_backtest():
 
         df['close'] = df['close'].astype(float)
     
-        df['ema20'] = df['close'].ewm(span=span_short, adjust=False).mean()  # Short-term EMA
-        df['ema50'] = df['close'].ewm(span=span_long, adjust=False).mean()  # Long-term EMA
+        df['ema9'] = df['close'].ewm(span=span_short, adjust=False).mean()  # Short-term EMA
+        df['ema21'] = df['close'].ewm(span=span_long, adjust=False).mean()  # Long-term EMA
 
         for index, row in df.iterrows():
-            if pd.isna(row['ema20']) or pd.isna(row['ema50']):
+            if pd.isna(row['ema9']) or pd.isna(row['ema21']):
                 continue
 
             current_price = row['close']
-            short_ema = row['ema20']
-            long_ema = row['ema50']
+            short_ema = row['ema9']
+            long_ema = row['ema21']
             price_difference = current_price - short_ema
 
-            # Determine buy and sell signals based on trend and price difference
-            buy_signal = (
-                price_difference > (short_ema * buffer_percentage) and
-                short_ema > long_ema
-            )
-            sell_signal = (
-                price_difference < -(short_ema * buffer_percentage) and
-                short_ema < long_ema
-            )
+            # Corrected Buy and Sell Signal Logic
+            # Buy Signal: When the short-term EMA crosses above the long-term EMA
+            buy_signal = short_ema > long_ema and price_difference > (short_ema * buffer_percentage)
+            
+            # Sell Signal: When the short-term EMA crosses below the long-term EMA
+            sell_signal = short_ema < long_ema and price_difference < -(short_ema * buffer_percentage)
+            
             current_time = index.strftime("%Y-%m-%d %H:%M:%S")
 
             if buy_signal:
@@ -101,18 +99,18 @@ def ema_backtest():
     # Plotting
     plt.figure(figsize=(14, 7))
     plt.plot(df.index, df['close'], label='Close Price', color='blue')
-    plt.plot(df.index, df['ema20'], label='EMA 20', color='orange')
-    plt.plot(df.index, df['ema50'], label='EMA 50', color='green')
+    # plt.plot(df.index, df['ema9'], label='EMA 9', color='orange')
+    # plt.plot(df.index, df['ema21'], label='EMA 21', color='green')
 
-    plt.scatter(buy_signals, df.loc[buy_signals]['close'], marker='^', color='blue', lw=3, label='Buy Signal')
-    plt.scatter(sell_signals, df.loc[sell_signals]['close'], marker='v', color='red', lw=3, label='Sell Signal')
+    plt.scatter(buy_signals, df.loc[buy_signals]['close'], marker='v', color='red', lw=3, label='Buy Signal')
+    plt.scatter(sell_signals, df.loc[sell_signals]['close'], marker='^', color='blue', lw=3, label='Sell Signal')
 
-    plt.title(f'{symbol} Price with Buy/Sell Signals (1 Hour Time Frame)')
+    plt.title(f'{symbol} Price with Buy/Sell Signals (15-Minute Time Frame)')
     plt.xlabel('Date')
     plt.ylabel('Price')
     plt.legend()
     plt.show()
 
-# Call the backtest function to run it
+
 if __name__ == "__main__":
     ema_backtest()
