@@ -13,12 +13,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SYMBOL = "BTC-USDT"
-INTERVAL = "1m"
-MIN = 1
-LIMIT = 50  # Fetch 50 data points
+INTERVAL = "5m"
+MIN = 5
+LIMIT  = 100 
 AMOUNT_USDT = 100  # USDT
 
-THRESHOLD_PERCENTAGE = 0.0001  # 0.5% threshold for SMA difference
+THRESHOLD_PERCENTAGE = 0.005  # 0.5% threshold for SMA difference
 ATR_PERIOD = 14  # ATR period
 
 order_type = OrderType.NONE
@@ -47,15 +47,14 @@ def calculate_atr(klines, period=ATR_PERIOD):
     return atr
 
 # Function to make trading decisions with threshold and ATR checks
-def make_trade_decision(sma5, sma8, sma13, klines,close_prices):
+def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
     global order_type, last_order_id, count_of_long, count_of_short
     
     atr = calculate_atr(klines)
  
-    # Check SMA differences and ATR for volatility
+    # Check if there is a significant trend with added conditions for confirmation
     if abs(sma5 - sma8) / sma8 > THRESHOLD_PERCENTAGE and abs(sma8 - sma13) / sma13 > THRESHOLD_PERCENTAGE:
         if sma5 > sma8 > sma13 and close_prices[-1] > sma5 and atr > 0.01:
-            logger.info("Buy signal generated. Strong upward trend confirmed.")
             if order_type == OrderType.SHORT:
                 result = close_short(symbol=SYMBOL, quantity=0.015)
                 if result == 0:
@@ -63,11 +62,13 @@ def make_trade_decision(sma5, sma8, sma13, klines,close_prices):
                     logger.info(f"Closed SHORT order id = {last_order_id}")
                     count_of_short = 1
             if count_of_long == 1:
-                last_order_id, order_type = open_long(symbol=SYMBOL, quantity=0.015)
-                logger.info(f"LONG opened at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            count_of_long += 1
+                # Add logic for confirmation (e.g., multiple consecutive closes above SMA)
+                if all(cp > sma5 for cp in close_prices[-3:]):  # Last 3 close prices above SMA5
+                    last_order_id, order_type = open_long(symbol=SYMBOL, quantity=0.015)
+                    logger.info(f"LONG opened at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                count_of_long += 1
+
         elif sma5 < sma8 < sma13 and close_prices[-1] < sma5 and atr > 0.01:
-            logger.info("Sell signal generated. Strong downward trend confirmed.")
             if order_type == OrderType.LONG:
                 result = close_long(symbol=SYMBOL, quantity=0.015)
                 if result == 0:
@@ -75,9 +76,11 @@ def make_trade_decision(sma5, sma8, sma13, klines,close_prices):
                     logger.info(f"Closed LONG order id = {last_order_id}")
                     count_of_long = 1
             if count_of_short == 1:
-                last_order_id, order_type = open_short(symbol=SYMBOL, quantity=0.015)
-                logger.info(f"SHORT opened at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            count_of_short += 1
+                # Add logic for confirmation (e.g., multiple consecutive closes below SMA)
+                if all(cp < sma5 for cp in close_prices[-3:]):  # Last 3 close prices below SMA5
+                    last_order_id, order_type = open_short(symbol=SYMBOL, quantity=0.015)
+                    logger.info(f"SHORT opened at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                count_of_short += 1
     else:
         logger.info("No significant movement detected. Waiting for better conditions.")
 
@@ -98,7 +101,7 @@ async def main():
                     make_trade_decision(sma5, sma8, sma13, klines,close_prices)
                 else:
                     logger.warning("No Kline data received. Skipping this iteration.")
-                await asyncio.sleep(60)
+                await asyncio.sleep(MIN * 60)
             except asyncio.CancelledError:
                 logger.warning("Task was cancelled. Exiting.")
                 break
