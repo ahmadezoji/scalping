@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 
 KLINES_ENDPOINT = "/v1/klines"
 SYMBOL = "BTC-USDT"
-INTERVAL = "1m"
+INTERVAL = "5m"
+MIN = 5
 LIMIT = 50  # Fetch 50 data points
+
 AMOUNT_USDT = 100 #usdt
 
 order_type = OrderType.NONE
@@ -90,7 +92,7 @@ async def main():
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                past_time_ms = int(time.time() * 1000) - (LIMIT * 60 * 1000)  # 50 minutes ago
+                past_time_ms = int(time.time() * 1000) - (LIMIT * MIN * 60 * 1000)  
                 klines = get_kline(symbol=SYMBOL, interval=INTERVAL,limit=LIMIT,start=past_time_ms)
                 klines.raise_for_status()
                 klines = klines.json().get('data', [])
