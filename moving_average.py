@@ -15,10 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 
-KLINES_ENDPOINT = "/v1/klines"
 SYMBOL = "BTC-USDT"
-INTERVAL = "5m"
-MIN = 5
+INTERVAL = "1m"
+MIN = 1
 LIMIT = 50  # Fetch 50 data points
 
 AMOUNT_USDT = 100 #usdt
@@ -44,7 +43,8 @@ def make_trade_decision(sma5, sma8, sma13):
     global count_of_long
     global count_of_short
     # amount = round(AMOUNT_USDT / last_price(symbol=SYMBOL), 5)
-    amount = 0.0014
+    # amount = 0.0014
+    amount = 0.015
 
    
     if sma5 > sma8 > sma13:
@@ -52,7 +52,7 @@ def make_trade_decision(sma5, sma8, sma13):
         logger.info(f'Buy signal generated. SMAs indicate a strong upward trend.in this time {current_time}')
         # Here, you would add code to place a buy order via the API
         if (order_type == OrderType.SHORT):
-            result = close_short(symbol=SYMBOL, quantity=amount*count_of_short)
+            result = close_short(symbol=SYMBOL, quantity=amount)
             if(result == 0):
                 order_type = OrderType.NONE
                 logger.info(f'closed SHORT order id = {last_order_id} ')
@@ -60,9 +60,11 @@ def make_trade_decision(sma5, sma8, sma13):
 
 
         order_type = OrderType.LONG
-        last_order_id, order_type = open_long(symbol=SYMBOL, quantity=amount)        
+        if count_of_long == 1 :
+            last_order_id, order_type = open_long(symbol=SYMBOL, quantity=amount)        
+            logger.info(f'LONG opened at {current_time}')
         count_of_long = count_of_long + 1
-        logger.info(f'LONG opened at {current_time}')
+        
         
                         
 
@@ -72,7 +74,7 @@ def make_trade_decision(sma5, sma8, sma13):
         logger.info(f'Sell signal generated. SMAs indicate a strong downward trend. {current_time}')
         # Here, you would add code to place a sell order via the API
         if (order_type == OrderType.LONG):
-            result = close_long(symbol=SYMBOL, quantity=amount*count_of_long)
+            result = close_long(symbol=SYMBOL, quantity=amount)
             if(result == 0):
                 order_type = OrderType.NONE
                 logger.info(f'closed LONG order id = {last_order_id}')
@@ -80,9 +82,11 @@ def make_trade_decision(sma5, sma8, sma13):
 
 
         order_type = OrderType.SHORT
-        last_order_id, order_type = open_short(symbol=SYMBOL, quantity=amount)   
+        if count_of_short == 1:
+            last_order_id, order_type = open_short(symbol=SYMBOL, quantity=amount)   
+            logger.info(f'SHORT opened at {current_time}')
         count_of_short = count_of_short + 1     
-        logger.info(f'SHORT opened at {current_time}')
+        
 
     else:
         logger.info("No clear trend. Waiting for better conditions.")
