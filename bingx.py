@@ -98,6 +98,31 @@ def open_short(symbol, quantity):
     
     return (response.json().get('data').get('order').get('orderId'), OrderType.SHORT) if response.json().get('code') == 0 else (-1, OrderType.SHORT)
 
+def closeAllPosition(symbol):
+    payload = {}
+    path = '/openApi/swap/v2/trade/closeAllPositions'
+    method = "POST"
+    paramsMap = {
+       "timestamp": str(int(time.time() * 1000)),
+        "symbol": symbol
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response.status_code
+
+
+
+def closePosition(positionId):
+    payload = {}
+    path = '/openApi/swap/v1/trade/closePosition'
+    method = "POST"
+    paramsMap = {
+       "timestamp": str(int(time.time() * 1000)),
+        "positionId": str(positionId)
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response
 
 
 
