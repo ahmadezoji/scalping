@@ -17,8 +17,8 @@ MIN = 1
 LIMIT = 100
 AMOUNT_USDT = 100  # USDT
 
-SL = -0.002  # -0.2% stop loss percentage
-TP = 0.003  # +0.3% take profit percentage
+SL = -0.13  # -0.2% stop loss percentage
+TP = 0.17  # +0.3% take profit percentage
 
 # THRESHOLD_PERCENTAGE = 0.002 # Moderate Sensitivity
 # THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
@@ -88,17 +88,21 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
 
     # Calculate profit/loss percentage based on last traded price
     if ordered_price is not None and order_type is not OrderType.NONE:
-        profit = (close_prices[-1] - ordered_price) / \
-            ordered_price  # Calculate profit as a percentage
-        logger.info(f"Calculated profit = {profit}")
+        profit = (close_prices[-1] - ordered_price)/ ordered_price  # Calculate profit
+        profit_percentage = ((close_prices[-1] - ordered_price) / ordered_price) * 100
+        unrealized_pnl = profit_percentage if order_type == OrderType.LONG else -1 * profit_percentage;
+
+        logger.info(f"unrealized_pnl = {unrealized_pnl} Calculated profit = {profit} ")
 
         # Check if the trade needs to be closed based on SL
-        if (order_type == OrderType.LONG and profit <= SL) or (order_type == OrderType.SHORT and profit >= -1 * SL):
+        # if (order_type == OrderType.LONG and unrealized_pnl <= SL) or (order_type == OrderType.SHORT and unrealized_pnl >= -1 * SL):
+        if unrealized_pnl <= SL:
             logger.info(f"Closing position due to Stop Loss condition.")
             close_last()
             ordered_price = None  # Reset the ordered price after closing
         # Check if the trade needs to be closed based on TP
-        if (order_type == OrderType.LONG and profit >= TP) or (order_type == OrderType.SHORT and profit <= -1 * TP):
+        # if (order_type == OrderType.LONG and profit >= TP) or (order_type == OrderType.SHORT and profit <= -1 * TP):
+        if unrealized_pnl >= TP:
             logger.info(f"Closing position due to Take Profit condition.")
             close_last()
             ordered_price = None  # Reset the ordered price after closing
@@ -168,7 +172,8 @@ async def main():
                 else:
                     logger.warning(
                         "No Kline data received. Skipping this iteration.")
-                await asyncio.sleep(MIN * 60)
+                # await asyncio.sleep(MIN * 60)
+                await asyncio.sleep(30)
             except asyncio.CancelledError:
                 logger.warning("Task was cancelled. Exiting.")
                 break
