@@ -18,7 +18,7 @@ LIMIT = 100
 AMOUNT_USDT = 2000  # USDT
 
 SL = -0.09  # % stop loss percentage
-TP = 0.15  # % take profit percentage
+TP = 0.13  # % take profit percentage
 
 # THRESHOLD_PERCENTAGE = 0.002 # Moderate Sensitivity
 # THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
