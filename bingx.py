@@ -79,7 +79,8 @@ def open_long(symbol, quantity):
     }
     paramsStr = praseParam(paramsMap)
     response = send_request(method, path, paramsStr, payload)
-    return (response.json().get('data').get('order').get('orderId'), OrderType.LONG) if response.json().get('code') == 0 else (-1, OrderType.LONG)
+    return (response.json().get('data').get('order').get('orderId'), OrderType.LONG, quantity) if response.json().get('code') == 0 else (-1, OrderType.LONG, quantity)
+
 
 def open_short(symbol, quantity):
     payload = {}
@@ -95,8 +96,9 @@ def open_short(symbol, quantity):
     }
     paramsStr = praseParam(paramsMap)
     response = send_request(method, path, paramsStr, payload)
-    
-    return (response.json().get('data').get('order').get('orderId'), OrderType.SHORT) if response.json().get('code') == 0 else (-1, OrderType.SHORT)
+
+    return (response.json().get('data').get('order').get('orderId'), OrderType.SHORT, quantity) if response.json().get('code') == 0 else (-1, OrderType.SHORT, quantity)
+
 
 def closeAllPosition(symbol):
     payload = {}
@@ -117,7 +119,7 @@ def closePosition(positionId):
     path = '/openApi/swap/v1/trade/closePosition'
     method = "POST"
     paramsMap = {
-       "timestamp": str(int(time.time() * 1000)),
+        "timestamp": str(int(time.time() * 1000)),
         "positionId": str(positionId)
     }
     paramsStr = praseParam(paramsMap)
@@ -204,9 +206,9 @@ def close_order(symbol, order_id):
     params_str = praseParam(params_map)
     response = send_request(method, path, params_str, payload)
     print(f'close order result = {response.text}')
-        # return send_request(method, path, params_str, payload)
+    # return send_request(method, path, params_str, payload)
     # else:
-        # print(f"Order {order_id} is not active and cannot be canceled.")
+    # print(f"Order {order_id} is not active and cannot be canceled.")
 
 
 
@@ -248,7 +250,7 @@ def get_server_time():
     return data.get('serverTime', {})
 
 
-def get_kline(symbol, interval,limit,start=str(int(time.time() * 1000))):
+def get_kline(symbol, interval, limit, start=str(int(time.time() * 1000))):
     server_time = get_server_time()
     payload = {}
     path = '/openApi/swap/v3/quote/klines'
@@ -257,7 +259,7 @@ def get_kline(symbol, interval,limit,start=str(int(time.time() * 1000))):
         "symbol": symbol,
         "interval": interval,
         "limit": limit,
-        "startTime":start
+        "startTime": start
     }
     
 
@@ -287,3 +289,17 @@ def praseParam(paramsMap):
     paramsStr = "&".join(["%s=%s" % (x, paramsMap[x]) for x in sortedKeys])
     return paramsStr+"&timestamp="+str(int(time.time() * 1000))
 
+
+def setLeverage(symbol, side, leverage):
+    payload = {}
+    path = '/openApi/swap/v2/trade/leverage'
+    method = "POST"
+    paramsMap = {
+        "leverage": leverage,
+        "side": side,
+        "symbol": symbol,
+        "timestamp": str(int(time.time() * 1000))
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response.status_code

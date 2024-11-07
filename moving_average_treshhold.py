@@ -15,10 +15,10 @@ SYMBOL = "BTC-USDT"
 INTERVAL = "1m"
 MIN = 1
 LIMIT = 100
-AMOUNT_USDT = 100  # USDT
+AMOUNT_USDT = 2000  # USDT
 
-SL = -0.13  # -0.2% stop loss percentage
-TP = 0.17  # +0.3% take profit percentage
+SL = -0.09  # % stop loss percentage
+TP = 0.15  # % take profit percentage
 
 # THRESHOLD_PERCENTAGE = 0.002 # Moderate Sensitivity
 # THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
@@ -32,6 +32,14 @@ last_order_id = None
 ordered_price = None
 count_of_long = 1
 count_of_short = 1
+last_trade_amount = None
+
+
+def trade_amount_calculate(symbol):
+    last_price_symbol = last_price(symbol=symbol)
+    if (last_price_symbol is not None or last_price_symbol != 0.0):
+        return AMOUNT_USDT / last_price_symbol
+    return -1
 
 
 # Function to calculate moving averages
@@ -66,33 +74,39 @@ def close_last():
     if order_type == OrderType.SHORT:
         # result = close_short(symbol=SYMBOL, quantity=0.015)
         result = closeAllPosition(symbol=SYMBOL)
-        if result == 200:  
+        if result == 200:
             order_type = OrderType.NONE
-            logger.info(f"Closed SHORT order id = {last_order_id}")
+            logger.info(f"Closed SHORT order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
             count_of_short = 1  # Reset counter for short trades
     elif order_type == OrderType.LONG:
         result = closeAllPosition(symbol=SYMBOL)
         if result == 200:
             order_type = OrderType.NONE
-            logger.info(f"Closed LONG order id = {last_order_id}")
+            logger.info(f"Closed LONG order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
             count_of_long = 1  # Reset counter for long trades
 
 # Function to make trading decisions with threshold and ATR checks
 
 
 def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
-    global order_type, last_order_id, count_of_long, count_of_short, ordered_price
+    global order_type, last_order_id, count_of_long, count_of_short, ordered_price, last_trade_amount
 
     # Calculate the ATR for volatility assessment
     atr = calculate_atr(klines)
 
     # Calculate profit/loss percentage based on last traded price
     if ordered_price is not None and order_type is not OrderType.NONE:
-        profit = (close_prices[-1] - ordered_price)/ ordered_price  # Calculate profit
-        profit_percentage = ((close_prices[-1] - ordered_price) / ordered_price) * 100
-        unrealized_pnl = profit_percentage if order_type == OrderType.LONG else -1 * profit_percentage;
+        profit = (close_prices[-1] - ordered_price) / \
+            ordered_price  # Calculate profit
+        profit_percentage = (
+            (close_prices[-1] - ordered_price) / ordered_price) * 100
+        unrealized_pnl = profit_percentage if order_type == OrderType.LONG else - \
+            1 * profit_percentage
 
-        logger.info(f"unrealized_pnl = {unrealized_pnl} Calculated profit = {profit} ")
+        logger.info(f"unrealized_pnl = {
+                    unrealized_pnl} Calculated profit = {profit} ")
 
         # Check if the trade needs to be closed based on SL
         # if (order_type == OrderType.LONG and unrealized_pnl <= SL) or (order_type == OrderType.SHORT and unrealized_pnl >= -1 * SL):
@@ -114,36 +128,46 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
                 result = closeAllPosition(symbol=SYMBOL)
                 if result == 200:
                     order_type = OrderType.NONE
-                    logger.info(f"Closed SHORT order id = {last_order_id}")
+                    logger.info(f"Closed SHORT order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
                     count_of_short = 1  # Reset counter for short trades
             if count_of_long == 1:  # Ensure only one long trade at a time
                 # Confirmation: Last close price should be above SMA5
                 if close_prices[-1] > sma5:
-                    last_order_id, order_type = open_long(
-                        symbol=SYMBOL, quantity=0.015)
+                    # setLeverage(symbol=SYMBOL,side="LONG",leverage=5)
+                    amount = trade_amount_calculate(symbol=SYMBOL)
+                    last_order_id, order_type, quantity = open_long(
+                        symbol=SYMBOL, quantity=amount)
                     logger.info(f"LONG opened at {datetime.now().strftime(
-                        '%Y-%m-%d %H:%M:%S')} in this price : {close_prices[-1]}")
+                        '%Y-%m-%d %H:%M:%S')} in this price : {close_prices[-1]} AMOUNT :{amount}")
                     count_of_long += 1
                     # Store the entry price for profit calculation
                     ordered_price = close_prices[-1]
+                    last_trade_amount = quantity
+                    # setLeverage(symbol=SYMBOL,side="LONG",leverage=1)
 
         elif sma5 < sma8 < sma13 and atr > 0.005:  # Sell signal criteria
             if order_type == OrderType.LONG:
                 result = closeAllPosition(symbol=SYMBOL)
                 if result == 200:
                     order_type = OrderType.NONE
-                    logger.info(f"Closed LONG order id = {last_order_id}")
+                    logger.info(f"Closed LONG order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
                     count_of_long = 1  # Reset counter for long trades
             if count_of_short == 1:  # Ensure only one short trade at a time
                 # Confirmation: Last close price should be below SMA5
                 if close_prices[-1] < sma5:
-                    last_order_id, order_type = open_short(
-                        symbol=SYMBOL, quantity=0.015)
+                    # setLeverage(symbol=SYMBOL,side="SHORT",leverage=5)
+                    amount = trade_amount_calculate(symbol=SYMBOL)
+                    last_order_id, order_type, quantity = open_short(
+                        symbol=SYMBOL, quantity=amount)
                     logger.info(f"SHORT opened at {datetime.now().strftime(
-                        '%Y-%m-%d %H:%M:%S')} in this price : {close_prices[-1]}")
+                        '%Y-%m-%d %H:%M:%S')} in this price : {close_prices[-1]} AMOUNT :{amount}")
                     count_of_short += 1
                     # Store the entry price for profit calculation
                     ordered_price = close_prices[-1]
+                    last_trade_amount = quantity
+                    # setLeverage(symbol=SYMBOL,side="SHORT",leverage=1)
         else:
             logger.info("No buy or sell signal met the criteria.")
     else:
@@ -158,22 +182,24 @@ async def main():
                 past_time_ms = get_server_time() - (LIMIT * MIN * 60 * 1000)
                 klines = get_kline(
                     symbol=SYMBOL, interval=INTERVAL, limit=LIMIT, start=past_time_ms)
+
                 klines.raise_for_status()
                 klines = klines.json().get('data', [])
-                last = last_price(symbol=SYMBOL)
+                if len(klines) == 0:
+                    return
                 klines.reverse()
                 if klines:
                     sma5, sma8, sma13, close_prices = calculate_moving_averages(
                         klines)
-                    logger.info(f"PRICES: {last} SMA5: {
+                    logger.info(f"PRICES: {close_prices[-1]} SMA5: {
                                 sma5}, SMA8: {sma8}, SMA13: {sma13}")
                     make_trade_decision(sma5, sma8, sma13,
                                         klines, close_prices)
                 else:
                     logger.warning(
                         "No Kline data received. Skipping this iteration.")
-                # await asyncio.sleep(MIN * 60)
-                await asyncio.sleep(30)
+                await asyncio.sleep(MIN * 60)
+                # await asyncio.sleep(30)
             except asyncio.CancelledError:
                 logger.warning("Task was cancelled. Exiting.")
                 break
@@ -231,8 +257,7 @@ if __name__ == "__main__":
     try:
         # asyncio.run(back_test(symbol=SYMBOL))
         asyncio.run(main())
-        
-       
+
     except KeyboardInterrupt:
         logger.info("Trading bot stopped manually.")
     except Exception as e:
