@@ -111,14 +111,16 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
         # Check if the trade needs to be closed based on SL
         # if (order_type == OrderType.LONG and unrealized_pnl <= SL) or (order_type == OrderType.SHORT and unrealized_pnl >= -1 * SL):
         if unrealized_pnl <= SL:
-            logger.info(f"Closing position due to Stop Loss condition.")
             close_last()
+            logger.info(f"Closing position due to Stop Loss condition at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
             ordered_price = None  # Reset the ordered price after closing
         # Check if the trade needs to be closed based on TP
         # if (order_type == OrderType.LONG and profit >= TP) or (order_type == OrderType.SHORT and profit <= -1 * TP):
         if unrealized_pnl >= TP:
-            logger.info(f"Closing position due to Take Profit condition.")
             close_last()
+            logger.info(f"Closing position due to Take Profit condition at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
             ordered_price = None  # Reset the ordered price after closing
 
     # Check for SMA trend conditions with ATR confirmation
@@ -138,8 +140,8 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
                     amount = trade_amount_calculate(symbol=SYMBOL)
                     last_order_id, order_type, quantity = open_long(
                         symbol=SYMBOL, quantity=amount)
-                    logger.info(f"LONG opened at {datetime.now().strftime(
-                        '%Y-%m-%d %H:%M:%S')} in this price : {close_prices[-1]} AMOUNT :{amount}")
+                    logger.info(f"LONG opened in this price : {close_prices[-1]} AMOUNT :{amount} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
                     count_of_long += 1
                     # Store the entry price for profit calculation
                     ordered_price = close_prices[-1]
@@ -161,8 +163,8 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
                     amount = trade_amount_calculate(symbol=SYMBOL)
                     last_order_id, order_type, quantity = open_short(
                         symbol=SYMBOL, quantity=amount)
-                    logger.info(f"SHORT opened at {datetime.now().strftime(
-                        '%Y-%m-%d %H:%M:%S')} in this price : {close_prices[-1]} AMOUNT :{amount}")
+                    logger.info(f"SHORT opened in this price : {close_prices[-1]} AMOUNT :{amount} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
                     count_of_short += 1
                     # Store the entry price for profit calculation
                     ordered_price = close_prices[-1]
