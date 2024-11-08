@@ -17,13 +17,13 @@ MIN = 1
 LIMIT = 100
 AMOUNT_USDT = 2000  # USDT
 
-SL = -0.06 # % stop loss percentage
-TP = 0.13  # % take profit percentage
+SL = -0.08 # % stop loss percentage
+TP = 0.18  # % take profit percentage
 
 # THRESHOLD_PERCENTAGE = 0.002 # Moderate Sensitivity
-# THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
+THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
 # THRESHOLD_PERCENTAGE = 0.0005 # Very High Sensitivity
-THRESHOLD_PERCENTAGE = 0.0001  # ultra High Sensitivity
+# THRESHOLD_PERCENTAGE = 0.0001  # ultra High Sensitivity
 
 ATR_PERIOD = 14  # ATR period
 
