@@ -12,19 +12,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SYMBOL = "BTC-USDT"
-INTERVAL = "1m"
-MIN = 1
+INTERVAL = "5m"
+MIN = 5
 LIMIT = 100
 AMOUNT_USDT = 2000  # USDT
 
-SL = -0.08 # % stop loss percentage
-TP = 0.18  # % take profit percentage
+SL = -0.05 # % stop loss percentage
+TP = 0.15  # % take profit percentage
 
 # THRESHOLD_PERCENTAGE = 0.002 # Moderate Sensitivity
 # THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
 # THRESHOLD_PERCENTAGE = 0.0005 # Very High Sensitivity
 # THRESHOLD_PERCENTAGE = 0.0001  # ultra High Sensitivity
-THRESHOLD_PERCENTAGE = 0.0007
+THRESHOLD_PERCENTAGE = 0.0003
 ATR_PERIOD = 14  # ATR period
 
 order_type = OrderType.NONE
