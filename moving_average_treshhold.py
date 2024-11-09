@@ -24,7 +24,7 @@ TP = 0.15  # % take profit percentage
 # THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
 # THRESHOLD_PERCENTAGE = 0.0005 # Very High Sensitivity
 # THRESHOLD_PERCENTAGE = 0.0001  # ultra High Sensitivity
-THRESHOLD_PERCENTAGE = 0.0003
+THRESHOLD_PERCENTAGE = 0.0001
 ATR_PERIOD = 14  # ATR period
 
 order_type = OrderType.NONE
