@@ -200,7 +200,7 @@ async def main():
                 else:
                     logger.warning(
                         "No Kline data received. Skipping this iteration.")
-                await asyncio.sleep(MIN * 60)
+                await asyncio.sleep(1 * 60)
                 # await asyncio.sleep(30)
             except asyncio.CancelledError:
                 logger.warning("Task was cancelled. Exiting.")
