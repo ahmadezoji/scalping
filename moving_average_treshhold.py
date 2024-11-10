@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SYMBOL = "BTC-USDT"
-INTERVAL = "5m"
-MIN = 5
+INTERVAL = "1m"
+MIN = 1
 LIMIT = 100
 AMOUNT_USDT = 2000  # USDT
 
@@ -200,7 +200,7 @@ async def main():
                 else:
                     logger.warning(
                         "No Kline data received. Skipping this iteration.")
-                await asyncio.sleep(1 * 60)
+                await asyncio.sleep(MIN * 60)
                 # await asyncio.sleep(30)
             except asyncio.CancelledError:
                 logger.warning("Task was cancelled. Exiting.")
@@ -210,7 +210,104 @@ async def main():
                     "Unexpected error occurred in main loop. Continuing...")
 
 
-async def back_test(symbol, interval="1m"):
+# Backtesting function for the past two days with plotting
+def backtest(symbol, interval="1m", days=2):
+    global order_type, ordered_price, last_order_id, count_of_long, count_of_short
+
+    # Resetting trading state for backtest
+    order_type = OrderType.NONE
+    ordered_price = None
+    count_of_long = 1
+    count_of_short = 1
+    last_trade_amount = None
+    
+    # Fetch data for the past two days (2 * 24 * 60 / 1-minute interval)
+    limit = days * 12 * 60  # Number of minutes in 2 days
+    past_time_ms = get_server_time() - (limit * 60 * 1000)
+    
+    klines = get_kline(symbol=symbol, interval=interval, limit=limit, start=past_time_ms)
+    klines.raise_for_status()
+    klines = klines.json().get('data', [])
+    if len(klines) == 0:
+        logger.warning("No historical data available for backtest.")
+        return
+    
+    klines.reverse()  # Ensure klines are in ascending order
+    
+    close_prices = np.array([float(kline['close']) for kline in klines])
+    timestamps = [datetime.fromtimestamp(float(kline['time']) / 1000) for kline in klines]
+
+    # Variables to store buy/sell signal points
+    buy_signals = []
+    sell_signals = []
+
+    # Iterate over klines to simulate trading signals
+    for i in range(len(klines)):
+        # Only process if we have enough data for moving averages and ATR
+        if i >= 13:
+            sma5, sma8, sma13, _ = calculate_moving_averages(klines[:i+1])
+            atr = calculate_atr(klines[:i+1])
+
+            # Calculate unrealized PnL and make trading decisions based on backtesting logic
+            if ordered_price is not None and order_type is not OrderType.NONE:
+                profit_percentage = ((close_prices[i] - ordered_price) / ordered_price) * 100
+                unrealized_pnl = profit_percentage if order_type == OrderType.LONG else -1 * profit_percentage
+
+                # Check if we should close based on SL or TP
+                if unrealized_pnl <= SL:
+                    if order_type == OrderType.LONG:
+                        sell_signals.append((timestamps[i], close_prices[i]))
+                    elif order_type == OrderType.SHORT:
+                        buy_signals.append((timestamps[i], close_prices[i]))
+                    ordered_price = None
+                    order_type = OrderType.NONE
+                elif unrealized_pnl >= TP:
+                    if order_type == OrderType.LONG:
+                        sell_signals.append((timestamps[i], close_prices[i]))
+                    elif order_type == OrderType.SHORT:
+                        buy_signals.append((timestamps[i], close_prices[i]))
+                    ordered_price = None
+                    order_type = OrderType.NONE
+
+            # Check for buy/sell signals based on SMA and ATR criteria
+            if abs(sma5 - sma8) / sma8 > THRESHOLD_PERCENTAGE and abs(sma8 - sma13) / sma13 > THRESHOLD_PERCENTAGE:
+                if sma5 > sma8 > sma13 and atr > 0.005:
+                    if order_type != OrderType.LONG and count_of_long == 1:
+                        # Open long position
+                        buy_signals.append((timestamps[i], close_prices[i]))
+                        order_type = OrderType.LONG
+                        ordered_price = close_prices[i]
+                        count_of_long += 1
+                        count_of_short = 1
+                elif sma5 < sma8 < sma13 and atr > 0.005:
+                    if order_type != OrderType.SHORT and count_of_short == 1:
+                        # Open short position
+                        sell_signals.append((timestamps[i], close_prices[i]))
+                        order_type = OrderType.SHORT
+                        ordered_price = close_prices[i]
+                        count_of_short += 1
+                        count_of_long = 1
+
+    # Plotting the close prices and buy/sell signals
+    plt.figure(figsize=(14, 7))
+    plt.plot(timestamps, close_prices, label="Close Price", color="black")
+    
+    # Plotting buy signals
+    if buy_signals:
+        buy_times, buy_prices = zip(*buy_signals)
+        plt.scatter(buy_times, buy_prices, marker="^", color="green", label="Buy Signal", s=100)
+
+    # Plotting sell signals
+    if sell_signals:
+        sell_times, sell_prices = zip(*sell_signals)
+        plt.scatter(sell_times, sell_prices, marker="v", color="red", label="Sell Signal", s=100)
+
+    plt.xlabel("Time")
+    plt.ylabel("Price")
+    plt.title(f"{symbol} Backtest - Close Prices with Buy/Sell Signals")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
     # Function to calculate moving averages for backtesting
     def calculate_all_smas(klines):
         close_prices = [float(kline['close']) for kline in klines]
@@ -259,11 +356,9 @@ if __name__ == "__main__":
     try:
         # asyncio.run(back_test(symbol=SYMBOL))
         asyncio.run(main())
+        # asyncio.run(backtest(symbol=SYMBOL))
 
     except KeyboardInterrupt:
         logger.info("Trading bot stopped manually.")
     except Exception as e:
         logger.exception("Critical error. Bot stopped.")
-
-
-# Function for backtesting and plotting the results
