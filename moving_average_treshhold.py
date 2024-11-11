@@ -355,8 +355,8 @@ def backtest(symbol, interval="1m", days=1):
 if __name__ == "__main__":
     try:
         # asyncio.run(back_test(symbol=SYMBOL))
-        # asyncio.run(main())
-        asyncio.run(backtest(symbol=SYMBOL))
+        asyncio.run(main())
+        # asyncio.run(backtest(symbol=SYMBOL))
 
     except KeyboardInterrupt:
         logger.info("Trading bot stopped manually.")
