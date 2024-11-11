@@ -15,16 +15,17 @@ SYMBOL = "BTC-USDT"
 INTERVAL = "1m"
 MIN = 1
 LIMIT = 100
-AMOUNT_USDT = 2000  # USDT
+AMOUNT_USDT =3000  # USDT
 
-SL = -0.04 # % stop loss percentage
-TP = 0.12  # % take profit percentage
+SL = -0.01 # % stop loss percentage
+TP = 0.15  # % take profit percentage
 
 # THRESHOLD_PERCENTAGE = 0.002 # Moderate Sensitivity
 # THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
 # THRESHOLD_PERCENTAGE = 0.0005 # Very High Sensitivity
+THRESHOLD_PERCENTAGE = 0.0002 
 # THRESHOLD_PERCENTAGE = 0.0001  # ultra High Sensitivity
-THRESHOLD_PERCENTAGE = 0.001
+# THRESHOLD_PERCENTAGE = 0.001
 ATR_PERIOD = 14  # ATR period
 
 order_type = OrderType.NONE
@@ -79,6 +80,7 @@ def close_last():
             logger.info(f"Closed SHORT order id = {last_order_id} at {datetime.now().strftime(
                         '%Y-%m-%d %H:%M:%S')}")
             count_of_short = 1  # Reset counter for short trades
+            setLeverage(symbol=SYMBOL,side="SHORT",leverage=1)
     elif order_type == OrderType.LONG:
         result = closeAllPosition(symbol=SYMBOL)
         if result == 200:
@@ -86,6 +88,7 @@ def close_last():
             logger.info(f"Closed LONG order id = {last_order_id} at {datetime.now().strftime(
                         '%Y-%m-%d %H:%M:%S')}")
             count_of_long = 1  # Reset counter for long trades
+            setLeverage(symbol=SYMBOL,side="LONG",leverage=1)
 
 # Function to make trading decisions with threshold and ATR checks
 
@@ -132,11 +135,12 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
                     order_type = OrderType.NONE
                     logger.info(f"Closed SHORT order id = {last_order_id} at {datetime.now().strftime(
                         '%Y-%m-%d %H:%M:%S')}")
+                    setLeverage(symbol=SYMBOL,side="SHORT",leverage=1)
                     count_of_short = 1  # Reset counter for short trades
             if count_of_long == 1:  # Ensure only one long trade at a time
                 # Confirmation: Last close price should be above SMA5
                 if close_prices[-1] > sma5:
-                    # setLeverage(symbol=SYMBOL,side="LONG",leverage=5)
+                    # setLeverage(symbol=SYMBOL,side="LONG",leverage=2)
                     amount = trade_amount_calculate(symbol=SYMBOL)
                     last_order_id, order_type, quantity = open_long(
                         symbol=SYMBOL, quantity=amount)
@@ -146,7 +150,7 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
                     # Store the entry price for profit calculation
                     ordered_price = close_prices[-1]
                     last_trade_amount = quantity
-                    # setLeverage(symbol=SYMBOL,side="LONG",leverage=1)
+                    
 
         elif sma5 < sma8 < sma13 and atr > 0.005:  # Sell signal criteria
             if order_type == OrderType.LONG:
@@ -155,11 +159,12 @@ def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
                     order_type = OrderType.NONE
                     logger.info(f"Closed LONG order id = {last_order_id} at {datetime.now().strftime(
                         '%Y-%m-%d %H:%M:%S')}")
+                    setLeverage(symbol=SYMBOL,side="LONG",leverage=1)
                     count_of_long = 1  # Reset counter for long trades
             if count_of_short == 1:  # Ensure only one short trade at a time
                 # Confirmation: Last close price should be below SMA5
                 if close_prices[-1] < sma5:
-                    # setLeverage(symbol=SYMBOL,side="SHORT",leverage=5)
+                    # setLeverage(symbol=SYMBOL,side="SHORT",leverage=2)
                     amount = trade_amount_calculate(symbol=SYMBOL)
                     last_order_id, order_type, quantity = open_short(
                         symbol=SYMBOL, quantity=amount)
@@ -200,8 +205,8 @@ async def main():
                 else:
                     logger.warning(
                         "No Kline data received. Skipping this iteration.")
-                await asyncio.sleep(MIN * 60)
-                # await asyncio.sleep(30)
+                # await asyncio.sleep(MIN * 60)
+                await asyncio.sleep(50)
             except asyncio.CancelledError:
                 logger.warning("Task was cancelled. Exiting.")
                 break
@@ -222,7 +227,7 @@ def backtest(symbol, interval="1m", days=1):
     last_trade_amount = None
     
     # Fetch data for the past two days (2 * 24 * 60 / 1-minute interval)
-    limit = days * 10 * 60  # Number of minutes in 2 days
+    limit = days * 5 * 60  # Number of minutes in 2 days
     past_time_ms = get_server_time() - (limit * 60 * 1000)
     
     klines = get_kline(symbol=symbol, interval=interval, limit=limit, start=past_time_ms)
