@@ -24,11 +24,11 @@ AMOUNT_USDT = 3000  # USDT
 
 SL = -0.01  # Stop loss percentage
 TP = 0.15   # Take profit percentage
-THRESHOLD_PERCENTAGE = 0.0002  # Sensitivity for SMA
+THRESHOLD_PERCENTAGE = 0.0001  # Sensitivity for SMA
 ATR_PERIOD = 14  # ATR period
 RSI_PERIOD = 14  # RSI period
-RSI_OVERBOUGHT = 70  # RSI overbought threshold
-RSI_OVERSOLD = 30    # RSI oversold threshold
+RSI_OVERBOUGHT = 60  # RSI overbought threshold
+RSI_OVERSOLD = 40    # RSI oversold threshold
 
 order_type = OrderType.NONE
 last_order_id = None
@@ -108,32 +108,15 @@ def close_last():
 
 # Function to make trading decisions with threshold, ATR, and RSI checks
 def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
-    global order_type, last_order_id, count_of_long, count_of_short, ordered_price, last_trade_amount,stop_thread
+    global order_type, last_order_id, count_of_long, count_of_short, ordered_price, last_trade_amount, stop_thread
 
     # Calculate the ATR for volatility assessment
     atr = calculate_atr(klines)
     # Calculate RSI
     rsi = calculate_rsi(close_prices)[-1]  # Get the latest RSI value
+    logger.info(f"RSI: {rsi} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    
-    stop_thread = False  # Reset stop control for SL/TP monitoring thread
-    sl_tp_thread = threading.Thread(target=monitor_sl_tp)  # Start SL/TP monitoring thread
-    sl_tp_thread.start()
-
-    # Check for Stop Loss or Take Profit
-    # if ordered_price is not None and order_type is not OrderType.NONE:
-    #     profit_percentage = ((close_prices[-1] - ordered_price) / ordered_price) * 100
-    #     unrealized_pnl = profit_percentage if order_type == OrderType.LONG else -1 * profit_percentage
-
-    #     if unrealized_pnl <= SL:
-    #         close_last()
-    #         logger.info(f"Closing position due to Stop Loss at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    #         ordered_price = None
-    #     elif unrealized_pnl >= TP:
-    #         close_last()
-    #         logger.info(f"Closing position due to Take Profit at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    #         ordered_price = None
-
+   
     # Check for SMA trend conditions, ATR, and RSI confirmation
     if abs(sma5 - sma8) / sma8 > THRESHOLD_PERCENTAGE and abs(sma8 - sma13) / sma13 > THRESHOLD_PERCENTAGE:
         if sma5 > sma8 > sma13 and atr > 0.005 and rsi < RSI_OVERSOLD:  # Buy signal criteria
