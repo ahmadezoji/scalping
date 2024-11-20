@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 
 
 SYMBOL = "BTC-USDT"
-INTERVAL = "1m"  # Changed to 1-minute timeframe
-MIN = 1  # Adjust sleep time accordingly (1 minute)
+INTERVAL = "5m"  # Changed to 1-minute timeframe
+MIN = 5  # Adjust sleep time accordingly (1 minute)
 LIMIT = 100
 AMOUNT_USDT = 3000  # USDT
 
