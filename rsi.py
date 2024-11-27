@@ -22,13 +22,15 @@ MIN = 1
 LIMIT = 100
 AMOUNT_USDT = 3000  # USDT
 
-SL = -0.01  # Stop loss percentage
-TP = 0.15   # Take profit percentage
+# SL = -0.01  # Stop loss percentage
+# TP = 0.15   # Take profit percentage
+SL = -0.05  # Stop Loss: 2% below the entry price
+TP = 0.15   # Take Profit: 3% above the entry price
 THRESHOLD_PERCENTAGE = 0.0001  # Sensitivity for SMA
 ATR_PERIOD = 14  # ATR period
 RSI_PERIOD = 14  # RSI period
-RSI_OVERBOUGHT = 60  # RSI overbought threshold
-RSI_OVERSOLD = 40    # RSI oversold threshold
+RSI_OVERBOUGHT = 70  # RSI overbought threshold
+RSI_OVERSOLD = 30    # RSI oversold threshold
 
 order_type = OrderType.NONE
 last_order_id = None
@@ -144,7 +146,8 @@ def get_rsi_zone_action(rsi):
         return "Extremely Overbought", "SELL"
     return "Undefined", "WAIT"
 
-
+def calculate_rolling_sma(close_prices, window):
+    return np.convolve(close_prices, np.ones(window)/window, mode='valid')
 
 # Function to make trading decisions based on RSI zones
 def make_trade_decision_rsi_based(klines, close_prices):
@@ -165,9 +168,9 @@ def make_trade_decision_rsi_based(klines, close_prices):
             logger.info(f"LONG opened at {close_prices[-1]} AMOUNT: {amount} RSI: {rsi} ({rsi_zone}) at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             count_of_long += 1
             ordered_price = close_prices[-1]
-            # stop_thread = False  # Reset stop control for SL/TP monitoring thread
-            # sl_tp_thread = threading.Thread(target=monitor_sl_tp)  # Start SL/TP monitoring thread
-            # sl_tp_thread.start()
+            stop_thread = False  # Reset stop control for SL/TP monitoring thread
+            sl_tp_thread = threading.Thread(target=monitor_sl_tp)  # Start SL/TP monitoring thread
+            sl_tp_thread.start()
 
     elif action == "SELL":
         if order_type == OrderType.LONG:
@@ -178,9 +181,9 @@ def make_trade_decision_rsi_based(klines, close_prices):
             logger.info(f"SHORT opened at {close_prices[-1]} AMOUNT: {amount} RSI: {rsi} ({rsi_zone}) at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             count_of_short += 1
             ordered_price = close_prices[-1]
-            # stop_thread = False  # Reset stop control for SL/TP monitoring thread
-            # sl_tp_thread = threading.Thread(target=monitor_sl_tp)  # Start SL/TP monitoring thread
-            # sl_tp_thread.start()
+            stop_thread = False  # Reset stop control for SL/TP monitoring thread
+            sl_tp_thread = threading.Thread(target=monitor_sl_tp)  # Start SL/TP monitoring thread
+            sl_tp_thread.start()
 
     else:  # "WAIT" action
         logger.info(f"Waiting due to neutral RSI zone ({rsi_zone}). No action taken.")
@@ -204,6 +207,7 @@ async def main():
                         klines)
                     logger.info(f"PRICES: {close_prices[-1]} SMA5: {
                                 sma5}, SMA8: {sma8}, SMA13: {sma13}")
+                    
                     make_trade_decision_rsi_based(
                         klines, close_prices)
                 else:
@@ -230,7 +234,7 @@ def monitor_sl_tp():
                 (current_price - ordered_price) / ordered_price) * 100
             unrealized_pnl = profit_percentage if order_type == OrderType.LONG else - \
                 1 * profit_percentage
-
+            logger.info(f"unrealized_pnl: {unrealized_pnl} ")
             # Check SL and TP conditions
             if unrealized_pnl <= SL:
                 close_last()
