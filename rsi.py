@@ -17,15 +17,15 @@ sl_tp_thread = None
 
 
 SYMBOL = "BTC-USDT"
-INTERVAL = "1m"
-MIN = 1
+INTERVAL = "5m"
+MIN = 5
 LIMIT = 100
 AMOUNT_USDT = 3000  # USDT
 
 # SL = -0.01  # Stop loss percentage
 # TP = 0.15   # Take profit percentage
-SL = -0.05  # Stop Loss: 2% below the entry price
-TP = 0.15   # Take Profit: 3% above the entry price
+SL = -0.05
+TP = 0.15
 THRESHOLD_PERCENTAGE = 0.0001  # Sensitivity for SMA
 ATR_PERIOD = 14  # ATR period
 RSI_PERIOD = 14  # RSI period
