@@ -4,6 +4,8 @@ from datetime import datetime
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 import numpy as np
+import matplotlib.pyplot as plt
+
 
 # Set up logging
 logging.basicConfig(
@@ -46,10 +48,12 @@ def get_klines(symbol, interval, limit=100):
     """Fetch candlestick data."""
     try:
         klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-        return [float(kline[4]) for kline in klines]  # Closing prices
-    except BinanceAPIException as e:
-        logging.error(f"Binance API error: {e}")
+        # Ensure klines contains the expected data structure
+        return [(float(kline[4]), int(kline[0])) for kline in klines]  # Closing price and timestamp
+    except Exception as e:
+        logging.error(f"Error fetching klines: {e}")
         return []
+
 
 def scalping_bot(symbol, interval='1m'):
     """Scalping bot using RSI and SMA strategy."""
@@ -88,8 +92,72 @@ def scalping_bot(symbol, interval='1m'):
         except Exception as e:
             logging.error(f"Unexpected error: {e}")
             time.sleep(60)
+def back_test(symbol, interval='1m', limit=100):
+    """Backtest strategy using historical data."""
+    try:
+        # Fetch historical data
+        data = get_klines(symbol, interval, limit)
+        if not data or len(data) < 14:
+            logging.warning("Not enough data to perform backtest.")
+            return
+        
+        prices = [item[0] for item in data]
+        timestamps = [item[1] for item in data]
 
+        # Calculate indicators
+        rsi = calculate_rsi(prices, 14)
+        sma_short = [calculate_sma(prices[max(0, i - 4):i + 1], 5) for i in range(len(prices))]
+        sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13) for i in range(len(prices))]
+
+        # Find signals
+        for i in range(14, len(prices)):
+            if sma_short[i] is None or sma_long[i] is None:
+                continue
+
+            signal = None
+            if sma_short[i] > sma_long[i] and rsi[i] < 40:
+                signal = "BUY"
+            elif sma_short[i] < sma_long[i] and rsi[i] > 60:
+                signal = "SELL"
+
+            if signal:
+                price = prices[i]
+                time_of_signal = datetime.fromtimestamp(timestamps[i] / 1000)
+                log_message = f"{time_of_signal} - Signal: {signal}, Price: {price:.2f}, RSI: {rsi[i]:.2f}"
+                logging.info(log_message)
+                print(log_message)
+
+    except Exception as e:
+        logging.error(f"Unexpected error during backtest: {e}")
+def fetch_and_plot_klines(symbol, interval, limit):
+    """Fetch kline data from Binance and plot close prices."""
+    try:
+        # Fetch klines
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        
+        # Extract close prices and timestamps
+        close_prices = [float(kline[4]) for kline in klines]
+        timestamps = [datetime.fromtimestamp(int(kline[0]) / 1000) for kline in klines]
+        
+        # Plot close prices
+        plt.figure(figsize=(12, 6))
+        plt.plot(timestamps, close_prices, label='Close Price', color='blue')
+        plt.title(f"{symbol} Close Prices ({interval} Interval)")
+        plt.xlabel("Time")
+        plt.ylabel("Close Price")
+        plt.grid()
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+    except Exception as e:
+        print(f"Error fetching or plotting klines: {e}")
 # Run the bot
 if __name__ == "__main__":
-    symbol = 'BTCUSDT' 
-    scalping_bot(symbol)
+    symbol = 'BTCUSDT'  # Change to your desired trading pair
+    interval = '5m'  # Change to desired interval ('1m', '5m', etc.)
+    limit = 300  # Number of historical candles to fetch
+    back_test(symbol, interval, limit)
+    # fetch_and_plot_klines(symbol="BTCUSDT", interval=interval, limit=limit)
+
+    # scalping_bot(symbol)
