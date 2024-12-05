@@ -200,6 +200,83 @@ def back_test(symbol, interval='1m', limit=100):
 
     except Exception as e:
         logging.error(f"Unexpected error during backtest: {e}")
+
+def back_test_via_pnl(symbol, interval='1m', limit=300, usdt_amount=200):
+    """Backtest scalping strategy with dummy trading."""
+    # Simulated trading state
+    current_position = None  # None, 'LONG', or 'SHORT'
+    open_price = None
+    total_pnl = 0  # Total PnL across all trades
+
+    # Fetch historical data
+    klines = get_klines(symbol, interval, limit)
+    if len(klines) < 14:
+        logging.warning("Not enough data to perform backtest.")
+        return
+
+    prices = [kline[0] for kline in klines]  # Extract close prices
+    timestamps = [datetime.fromtimestamp(kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
+
+    # Calculate indicators
+    rsi = calculate_rsi(prices, 14)
+    sma_short = [calculate_sma(prices[max(0, i - 4):i + 1], 5) for i in range(len(prices))]
+    sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13) for i in range(len(prices))]
+
+    # Iterate through data to simulate trades
+    for i in range(14, len(prices)):
+        last_rsi = rsi[i]
+        current_price = prices[i]
+        signal = None
+
+        # Generate trading signal
+        if sma_short[i] > sma_long[i] and last_rsi < 37:
+            signal = "BUY"
+        elif sma_short[i] < sma_long[i] and last_rsi > 63:
+            signal = "SELL"
+
+        # Process the signal
+        if signal == "BUY" and current_position != "LONG":
+            # Close existing position if SHORT
+            if current_position == "SHORT":
+                realized_pnl = (open_price - current_price) / open_price * usdt_amount
+                total_pnl += realized_pnl
+                logging.info(f"Closing SHORT at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
+                print(f"{timestamps[i]} - Closing SHORT at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
+
+            # Open a new LONG position
+            current_position = "LONG"
+            open_price = current_price
+            logging.info(f"Opening LONG at {current_price:.2f}")
+            print(f"{timestamps[i]} - Opening LONG at {current_price:.2f}")
+
+        elif signal == "SELL" and current_position != "SHORT":
+            # Close existing position if LONG
+            if current_position == "LONG":
+                realized_pnl = (current_price - open_price) / open_price * usdt_amount
+                total_pnl += realized_pnl
+                logging.info(f"Closing LONG at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
+                print(f"{timestamps[i]} - Closing LONG at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
+
+            # Open a new SHORT position
+            current_position = "SHORT"
+            open_price = current_price
+            logging.info(f"Opening SHORT at {current_price:.2f}")
+            print(f"{timestamps[i]} - Opening SHORT at {current_price:.2f}")
+
+        # Calculate unrealized PnL for the current open position
+        if current_position == "LONG":
+            unrealized_pnl = (current_price - open_price) / open_price * usdt_amount
+            logging.info(f"LONG Unrealized PnL: {unrealized_pnl:.2f}")
+            print(f"{timestamps[i]} - LONG Unrealized PnL: {unrealized_pnl:.2f}")
+        elif current_position == "SHORT":
+            unrealized_pnl = (open_price - current_price) / open_price * usdt_amount
+            logging.info(f"SHORT Unrealized PnL: {unrealized_pnl:.2f}")
+            print(f"{timestamps[i]} - SHORT Unrealized PnL: {unrealized_pnl:.2f}")
+
+    # Log total PnL after backtest
+    logging.info(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
+    print(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
+
 def fetch_and_plot_klines(symbol, interval, limit):
     """Fetch kline data from Binance and plot close prices."""
     try:
@@ -226,9 +303,10 @@ def fetch_and_plot_klines(symbol, interval, limit):
 # Run the bot
 if __name__ == "__main__":
     symbol = 'BTCUSDT'  # Change to your desired trading pair
-    # interval = '5m'  # Change to desired interval ('1m', '5m', etc.)
+    interval = '5m'  # Change to desired interval ('1m', '5m', etc.)
     # limit = 300  # Number of historical candles to fetch
     # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol="BTCUSDT", interval=interval, limit=limit)
 
-    scalping_bot(symbol)
+    # scalping_bot(symbol)
+    back_test_via_pnl(symbol=symbol,interval=interval)
