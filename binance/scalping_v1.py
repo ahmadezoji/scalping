@@ -5,7 +5,7 @@ from binance.client import Client
 from binance.exceptions import BinanceAPIException
 import numpy as np
 import matplotlib.pyplot as plt
-
+from decimal import Decimal
 
 # Set up logging
 logging.basicConfig(
@@ -15,9 +15,10 @@ logging.basicConfig(
 )
 
 # Initialize Binance client
-API_KEY = 'PPRQJTGEPGtwNAg7C6OkuLvJgxtOlQTUdobh51g0or62iX4yP1y5QlmDzdcEW9Gh'
-API_SECRET = 'NVpSuN9KxAkSMiS1teAHRbcFrajQRmXUVFBcfSDBfaHjwNvwi4mfcb1sCd94gIs8'
+API_KEY = 'OCfUCqdr9E3GeEzHy1zADhFTP4UHwh50nfJtS7m07EVOpFeVzMxsF6EnxUFQHrUK'
+API_SECRET = 'VtXuwNQNq5dOjJefjjKIrxwjdeIo8wRt0FRjgfASqJZvNPChSRrvFDaV12G2COwH'
 client = Client(API_KEY, API_SECRET)
+# client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
 
 def calculate_sma(data, window):
     """Calculate Simple Moving Average."""
@@ -138,10 +139,45 @@ def scalping_bot(symbol, interval='1m', usdt_amount=200):
             logging.error(f"Unexpected error: {e}")
             print(f"Error: {e}")
             time.sleep(60)
-def place_order(symbol, side, quantity):
-    """Place a buy or sell order on Binance."""
+
+def place_order(symbol, side, usdt_amount):
+    """Place a buy or sell order on Binance Futures."""
     try:
-        order = client.create_order(
+        # Get the current price
+        ticker = client.futures_symbol_ticker(symbol=symbol)
+        last_price = float(ticker['price'])
+
+        # Get LOT_SIZE and NOTIONAL filters
+        min_qty, max_qty, step_size = get_lot_size(symbol)
+        min_notional = get_notional_min(symbol)
+
+        # Calculate quantity and adjust to the nearest step size
+        raw_quantity = usdt_amount / last_price
+        quantity = adjust_quantity(raw_quantity, step_size)
+
+        # Format quantity to the allowed precision
+        quantity = f"{quantity:.{len(str(step_size).split('.')[-1])}f}".rstrip('0').rstrip('.')
+
+        # Calculate notional value
+        notional_value = float(quantity) * last_price
+
+        # Log debug information
+        print(f"Last price: {last_price}")
+        print(f"Raw quantity: {raw_quantity}")
+        print(f"Adjusted quantity: {quantity}")
+        print(f"LOT_SIZE - Min: {min_qty}, Max: {max_qty}, Step: {step_size}")
+        print(f"NOTIONAL - Min: {min_notional}, Value: {notional_value}")
+
+        # Ensure quantity is within the allowed range
+        if float(quantity) < min_qty or float(quantity) > max_qty:
+            raise ValueError(f"Quantity {quantity} is out of range: [{min_qty}, {max_qty}]")
+
+        # Ensure notional value meets the minimum
+        if notional_value < min_notional:
+            raise ValueError(f"Notional value {notional_value} is below the minimum of {min_notional}.")
+
+        # Place the order
+        order = client.futures_create_order(
             symbol=symbol,
             side=side,
             type='MARKET',
@@ -150,6 +186,7 @@ def place_order(symbol, side, quantity):
         logging.info(f"Order placed: {side} {quantity} of {symbol}. Order ID: {order['orderId']}")
         print(f"Order placed: {side} {quantity} of {symbol}.")
         return order
+
     except BinanceAPIException as e:
         logging.error(f"Binance API Exception: {e}")
         print(f"Error: {e}")
@@ -158,7 +195,6 @@ def place_order(symbol, side, quantity):
         logging.error(f"Unexpected error: {e}")
         print(f"Error: {e}")
         return None
-
 def execute_trade(symbol, signal, usdt_amount=10):
     """Execute a trade based on the signal."""
     global current_position
@@ -331,14 +367,44 @@ def fetch_and_plot_klines(symbol, interval, limit):
 
     except Exception as e:
         print(f"Error fetching or plotting klines: {e}")
+def get_notional_min(symbol):
+    """Fetch NOTIONAL filter for the given symbol."""
+    exchange_info = client.get_exchange_info()
+    for symbol_info in exchange_info['symbols']:
+        if symbol_info['symbol'] == symbol:
+            for filter_info in symbol_info['filters']:
+                if filter_info['filterType'] == 'NOTIONAL':
+                    return float(filter_info['minNotional'])
+    raise Exception(f"NOTIONAL filter not found for symbol {symbol}")
+def get_lot_size(symbol):
+    """Fetch LOT_SIZE filter for the given symbol."""
+    exchange_info = client.get_exchange_info()
+    for symbol_info in exchange_info['symbols']:
+        if symbol_info['symbol'] == symbol:
+            for filter_info in symbol_info['filters']:
+                if filter_info['filterType'] == 'LOT_SIZE':
+                    return (
+                        float(filter_info['minQty']),
+                        float(filter_info['maxQty']),
+                        float(filter_info['stepSize'])
+                    )
+    raise Exception(f"LOT_SIZE not found for symbol {symbol}")
+def adjust_quantity(quantity, step_size):
+    """Adjust quantity to the nearest step size and format to the allowed precision."""
+    precision = len(str(step_size).split('.')[-1])  # Determine the number of decimal places
+    return round(quantity, precision)
+
 # Run the bot
 if __name__ == "__main__":
-    symbol = 'BTCUSDT'  # Change to your desired trading pair
+    symbol = 'EOSUSDT'  # Change to your desired trading pair
     interval = '5m'  # Change to desired interval ('1m', '5m', etc.)
-    usdt_amount = 9
-    # limit = 300  # Number of historical candles to fetch
+    usdt_amount = 6
+    limit = 300  # Number of historical candles to fetch
     # back_test(symbol, interval, limit)
-    # fetch_and_plot_klines(symbol="BTCUSDT", interval=interval, limit=limit)
+    # fetch_and_plot_klines(symbol=symbol, interval=interval, limit=limit)
 
     scalping_bot(symbol,interval,usdt_amount)
     # back_test_via_pnl(symbol=symbol,interval=interval)
+
+  
+
