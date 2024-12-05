@@ -55,43 +55,114 @@ def get_klines(symbol, interval, limit=100):
         return []
 
 
-def scalping_bot(symbol, interval='1m'):
+def scalping_bot(symbol, interval='1m', usdt_amount=200):
     """Scalping bot using RSI and SMA strategy."""
+    global current_position
+    current_position = None  # Initialize the current position
+
     while True:
         try:
             # Fetch data
-            prices = get_klines(symbol, interval)
-            if len(prices) < 14:
+            klines = get_klines(symbol, interval)
+            if len(klines) < 14:
                 logging.warning("Not enough data to calculate indicators.")
                 time.sleep(60)
                 continue
+
+            prices = [kline[0] for kline in klines]  # Extract close prices
+            # timestamps = [kline[1] for kline in klines]
+            timestamps = [datetime.fromtimestamp(kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
+
 
             # Calculate indicators
             rsi = calculate_rsi(prices, 14)
             sma_short = calculate_sma(prices, 5)
             sma_long = calculate_sma(prices, 13)
 
+             # Log calculated indicators
+            logging.info(f"Latest Data: RSI: {rsi[-1]:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}, Time: {timestamps[-1]}")
+            print(f"{timestamps[-1]} - RSI: {rsi[-1]:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
+
             # Get current price and signal
             current_price = prices[-1]
             last_rsi = rsi[-1]
             signal = None
 
-            if sma_short > sma_long and last_rsi < 30:
+            if sma_short > sma_long and last_rsi < 45:
                 signal = "BUY"
-            elif sma_short < sma_long and last_rsi > 70:
+            elif sma_short < sma_long and last_rsi > 55:
                 signal = "SELL"
 
-            # Log the signal
+            # Log the signal and execute trades
             if signal:
                 logging.info(f"Signal: {signal}, Price: {current_price}, RSI: {last_rsi:.2f}")
                 print(f"{datetime.now()} - Signal: {signal}, Price: {current_price}, RSI: {last_rsi:.2f}")
 
+                # Execute the trade
+                execute_trade(symbol, signal, usdt_amount)
+
             # Wait before next iteration
-            time.sleep(60)  # 5 minutes
+            time.sleep(60)  # Wait for 1 minute before fetching new data
 
         except Exception as e:
             logging.error(f"Unexpected error: {e}")
             time.sleep(60)
+def place_order(symbol, side, quantity):
+    """Place a buy or sell order on Binance."""
+    try:
+        order = client.create_order(
+            symbol=symbol,
+            side=side,
+            type='MARKET',
+            quantity=quantity
+        )
+        logging.info(f"Order placed: {side} {quantity} of {symbol}. Order ID: {order['orderId']}")
+        print(f"Order placed: {side} {quantity} of {symbol}.")
+        return order
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception: {e}")
+        print(f"Error: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        print(f"Error: {e}")
+        return None
+
+def execute_trade(symbol, signal, usdt_amount=10):
+    """Execute a trade based on the signal."""
+    global current_position
+
+    # Determine quantity of BTC to trade (using the last market price)
+    try:
+        ticker = client.get_ticker(symbol=symbol)
+        last_price = float(ticker['lastPrice'])
+        btc_quantity = round(usdt_amount / last_price, 6)  # Adjust precision as needed
+
+        if signal == "BUY":
+            if current_position == "BUY":
+                logging.info("Already in a BUY position, skipping new BUY signal.")
+                print("Already in a BUY position, skipping new BUY signal.")
+            else:
+                order = place_order(symbol, side="BUY", quantity=btc_quantity)
+                if order:
+                    current_position = "BUY"
+
+        elif signal == "SELL":
+            if current_position == "BUY":
+                # Close the long position
+                order = place_order(symbol, side="SELL", quantity=btc_quantity)
+                if order:
+                    current_position = None
+            else:
+                logging.info("No active BUY position to close, skipping SELL signal.")
+                print("No active BUY position to close, skipping SELL signal.")
+
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception: {e}")
+        print(f"Error: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        print(f"Error: {e}")
 def back_test(symbol, interval='1m', limit=100):
     """Backtest strategy using historical data."""
     try:
@@ -155,9 +226,9 @@ def fetch_and_plot_klines(symbol, interval, limit):
 # Run the bot
 if __name__ == "__main__":
     symbol = 'BTCUSDT'  # Change to your desired trading pair
-    interval = '5m'  # Change to desired interval ('1m', '5m', etc.)
-    limit = 300  # Number of historical candles to fetch
-    back_test(symbol, interval, limit)
+    # interval = '5m'  # Change to desired interval ('1m', '5m', etc.)
+    # limit = 300  # Number of historical candles to fetch
+    # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol="BTCUSDT", interval=interval, limit=limit)
 
-    # scalping_bot(symbol)
+    scalping_bot(symbol)
