@@ -56,9 +56,10 @@ def get_klines(symbol, interval, limit=100):
 
 
 def scalping_bot(symbol, interval='1m', usdt_amount=200):
-    """Scalping bot using RSI and SMA strategy."""
+    """Scalping bot using RSI and SMA strategy with real orders."""
     global current_position
-    current_position = None  # Initialize the current position
+    current_position = None  # None, 'LONG', or 'SHORT'
+    open_price = None
 
     while True:
         try:
@@ -70,42 +71,72 @@ def scalping_bot(symbol, interval='1m', usdt_amount=200):
                 continue
 
             prices = [kline[0] for kline in klines]  # Extract close prices
-            # timestamps = [kline[1] for kline in klines]
             timestamps = [datetime.fromtimestamp(kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
-
 
             # Calculate indicators
             rsi = calculate_rsi(prices, 14)
             sma_short = calculate_sma(prices, 5)
             sma_long = calculate_sma(prices, 13)
 
-             # Log calculated indicators
+            # Log calculated indicators
             logging.info(f"Latest Data: RSI: {rsi[-1]:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}, Time: {timestamps[-1]}")
             print(f"{timestamps[-1]} - RSI: {rsi[-1]:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
 
-            # Get current price and signal
-            current_price = prices[-1]
+            # Generate trading signal
             last_rsi = rsi[-1]
+            current_price = prices[-1]
             signal = None
 
-            if sma_short > sma_long and last_rsi < 45:
+            if sma_short > sma_long and last_rsi < 37:
                 signal = "BUY"
-            elif sma_short < sma_long and last_rsi > 55:
+            elif sma_short < sma_long and last_rsi > 63:
                 signal = "SELL"
 
-            # Log the signal and execute trades
-            if signal:
-                logging.info(f"Signal: {signal}, Price: {current_price}, RSI: {last_rsi:.2f}")
-                print(f"{datetime.now()} - Signal: {signal}, Price: {current_price}, RSI: {last_rsi:.2f}")
+            # Process the signal
+            if signal == "BUY" and current_position != "LONG":
+                # Close SHORT position if active
+                if current_position == "SHORT":
+                    realized_pnl = (open_price - current_price) / open_price * usdt_amount
+                    logging.info(f"Closing SHORT at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
+                    print(f"{timestamps[-1]} - Closing SHORT at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
 
-                # Execute the trade
-                execute_trade(symbol, signal, usdt_amount)
+                # Open a LONG position
+                open_price = current_price
+                execute_trade(symbol, "BUY", usdt_amount)
+                current_position = "LONG"
+                logging.info(f"Opening LONG at {current_price:.2f}")
+                print(f"{timestamps[-1]} - Opening LONG at {current_price:.2f}")
 
-            # Wait before next iteration
-            time.sleep(60)  # Wait for 1 minute before fetching new data
+            elif signal == "SELL" and current_position != "SHORT":
+                # Close LONG position if active
+                if current_position == "LONG":
+                    realized_pnl = (current_price - open_price) / open_price * usdt_amount
+                    logging.info(f"Closing LONG at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
+                    print(f"{timestamps[-1]} - Closing LONG at {current_price:.2f}, Realized PnL: {realized_pnl:.2f}")
+
+                # Open a SHORT position
+                open_price = current_price
+                execute_trade(symbol, "SELL", usdt_amount)
+                current_position = "SHORT"
+                logging.info(f"Opening SHORT at {current_price:.2f}")
+                print(f"{timestamps[-1]} - Opening SHORT at {current_price:.2f}")
+
+            # Calculate unrealized PnL for the current open position
+            if current_position == "LONG":
+                unrealized_pnl = (current_price - open_price) / open_price * usdt_amount
+                logging.info(f"LONG Unrealized PnL: {unrealized_pnl:.2f}")
+                print(f"{timestamps[-1]} - LONG Unrealized PnL: {unrealized_pnl:.2f}")
+            elif current_position == "SHORT":
+                unrealized_pnl = (open_price - current_price) / open_price * usdt_amount
+                logging.info(f"SHORT Unrealized PnL: {unrealized_pnl:.2f}")
+                print(f"{timestamps[-1]} - SHORT Unrealized PnL: {unrealized_pnl:.2f}")
+
+            # Wait before the next iteration
+            time.sleep(300)
 
         except Exception as e:
             logging.error(f"Unexpected error: {e}")
+            print(f"Error: {e}")
             time.sleep(60)
 def place_order(symbol, side, quantity):
     """Place a buy or sell order on Binance."""
@@ -304,9 +335,10 @@ def fetch_and_plot_klines(symbol, interval, limit):
 if __name__ == "__main__":
     symbol = 'BTCUSDT'  # Change to your desired trading pair
     interval = '5m'  # Change to desired interval ('1m', '5m', etc.)
+    usdt_amount = 9
     # limit = 300  # Number of historical candles to fetch
     # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol="BTCUSDT", interval=interval, limit=limit)
 
-    # scalping_bot(symbol)
-    back_test_via_pnl(symbol=symbol,interval=interval)
+    scalping_bot(symbol,interval,usdt_amount)
+    # back_test_via_pnl(symbol=symbol,interval=interval)
