@@ -307,127 +307,120 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
                       rsi_buy_threshold=40, rsi_sell_threshold=60,
                       tp_percentage=0.02, sl_percentage=0.01):
     """Backtest scalping strategy with TP and SL logic included."""
-    current_position = None  # None, 'LONG', or 'SHORT'
-    open_price = None
-    total_pnl = 0  # Total PnL across all trades
+    
+    try:
+        current_position = None  # None, 'LONG', or 'SHORT'
+        open_price = None
+        total_pnl = 0  # Total PnL across all trades
+        stop_loss_price = None
+        take_profit_price = None
 
-    # Fetch historical data
-    klines = get_klines(symbol, interval, limit)
-    if len(klines) < 14:
-        logging.warning("Not enough data to perform backtest.")
-        return
+        # Fetch historical data
+        klines = get_klines(symbol, interval, limit)
+        if len(klines) < 14:
+            logging.warning("Not enough data to perform backtest.")
+            return
 
-    prices = [kline[0] for kline in klines]  # Extract close prices
-    timestamps = [datetime.fromtimestamp(
-        kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
+        prices = [kline[0] for kline in klines]  # Extract close prices
+        timestamps = [datetime.fromtimestamp(
+            kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
 
-    # Calculate indicators
-    rsi = calculate_rsi(prices, 14)
-    sma_short = [calculate_sma(prices[max(0, i - 4):i + 1], 5)
-                 for i in range(len(prices))]
-    sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13)
-                for i in range(len(prices))]
+        # Calculate indicators
+        rsi = calculate_rsi(prices, 14)
+        sma_short = [calculate_sma(prices[max(0, i - 4):i + 1], 5)
+                    for i in range(len(prices))]
+        sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13)
+                    for i in range(len(prices))]
 
-    for i in range(14, len(prices)):
-        last_rsi = rsi[i]
-        current_price = prices[i]
-        signal = None
+        for i in range(14, len(prices)):
+            last_rsi = rsi[i]
+            current_price = prices[i]
+            signal = None
 
-        # Generate trading signal
-        if sma_short[i] > sma_long[i] and last_rsi < rsi_buy_threshold:
-            signal = "BUY"
-        elif sma_short[i] < sma_long[i] and last_rsi > rsi_sell_threshold:
-            signal = "SELL"
+            # Generate trading signal
+            if sma_short[i] > sma_long[i] and last_rsi < rsi_buy_threshold:
+                signal = "BUY"
+            elif sma_short[i] < sma_long[i] and last_rsi > rsi_sell_threshold:
+                signal = "SELL"
 
-        # Check TP and SL conditions
-        if current_position == "LONG":
-            if current_price >= open_price * (1 + tp_percentage):  # Take Profit
-                realized_pnl = (current_price - open_price) / \
-                    open_price * usdt_amount
-                total_pnl += realized_pnl
-                log_trade('LONG', 'CLOSE (TP)', current_price,
-                          realized_pnl, timestamps[i])
-                current_position = None
-                open_price = None
-            # Stop Loss
-            elif current_price <= open_price * (1 - sl_percentage):
-                realized_pnl = (current_price - open_price) / \
-                    open_price * usdt_amount
-                total_pnl += realized_pnl
-                log_trade('LONG', 'CLOSE (SL)', current_price,
-                          realized_pnl, timestamps[i])
-                current_position = None
-                open_price = None
+            # Check TP and SL conditions
+            if current_position == "LONG":
+                if current_price >= take_profit_price:  # Take Profit
+                    realized_pnl = (current_price - open_price) / open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('LONG', 'CLOSE (TP)', current_price, realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
+                elif current_price <= stop_loss_price:  # Stop Loss
+                    realized_pnl = (current_price - open_price) / open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('LONG', 'CLOSE (SL)', current_price, realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
 
-        elif current_position == "SHORT":
-            if current_price <= open_price * (1 - tp_percentage):  # Take Profit
-                realized_pnl = (open_price - current_price) / \
-                    open_price * usdt_amount
-                total_pnl += realized_pnl
-                log_trade('SHORT', 'CLOSE (TP)', current_price,
-                          realized_pnl, timestamps[i])
-                current_position = None
-                open_price = None
-            # Stop Loss
-            elif current_price >= open_price * (1 + sl_percentage):
-                realized_pnl = (open_price - current_price) / \
-                    open_price * usdt_amount
-                total_pnl += realized_pnl
-                log_trade('SHORT', 'CLOSE (SL)', current_price,
-                          realized_pnl, timestamps[i])
-                current_position = None
-                open_price = None
+            elif current_position == "SHORT":
+                if current_price <= take_profit_price:  # Take Profit
+                    realized_pnl = (open_price - current_price) / open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('SHORT', 'CLOSE (TP)', current_price, realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
+                elif current_price >= stop_loss_price:  # Stop Loss
+                    realized_pnl = (open_price - current_price) / open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('SHORT', 'CLOSE (SL)', current_price, realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
 
-        # Process the signal
-        if signal == "BUY" and current_position != "LONG":
-            if current_position == "SHORT":  # Close SHORT position
-                realized_pnl = (open_price - current_price) / \
-                    open_price * usdt_amount
-                total_pnl += realized_pnl
-                log_trade('SHORT', 'CLOSE', current_price,
-                          realized_pnl, timestamps[i])
+            # Process the signal
+            if signal == "BUY" and current_position != "LONG":
+                if current_position == "SHORT":  # Close SHORT position
+                    realized_pnl = (open_price - current_price) / open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('SHORT', 'CLOSE', current_price, realized_pnl, timestamps[i])
 
-            current_position = "LONG"
-            open_price = current_price
-            log_trade('LONG', 'OPEN', current_price,0.0, timestamps[i])
+                current_position = "LONG"
+                open_price = current_price
+                sl_tp = calculate_sl_tp(open_price, 'LONG', interval, tp_percentage, sl_percentage)
+                stop_loss_price = sl_tp['SL']
+                take_profit_price = sl_tp['TP']
+                log_trade('LONG', 'OPEN', current_price, 0.0, timestamps[i])
 
-        elif signal == "SELL" and current_position != "SHORT":
-            if current_position == "LONG":  # Close LONG position
-                realized_pnl = (current_price - open_price) / \
-                    open_price * usdt_amount
-                total_pnl += realized_pnl
-                log_trade('LONG', 'CLOSE', current_price,
-                          realized_pnl, timestamps[i])
+            elif signal == "SELL" and current_position != "SHORT":
+                if current_position == "LONG":  # Close LONG position
+                    realized_pnl = (current_price - open_price) / open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('LONG', 'CLOSE', current_price, realized_pnl, timestamps[i])
 
-            current_position = "SHORT"
-            open_price = current_price
-            log_trade('SHORT', 'OPEN', current_price,0.0, timestamps[i])
+                current_position = "SHORT"
+                open_price = current_price
+                sl_tp = calculate_sl_tp(open_price, 'SHORT', interval, tp_percentage, sl_percentage)
+                stop_loss_price = sl_tp['SL']
+                take_profit_price = sl_tp['TP']
+                log_trade('SHORT', 'OPEN', current_price, 0.0, timestamps[i])
 
-        # Calculate and log unrealized PnL
-        if current_position:
-            unrealized_pnl = calculate_unrealized_pnl(
-                current_position, open_price, current_price, usdt_amount)
-            log_unrealized_pnl(current_position, unrealized_pnl, timestamps[i])
+            # Calculate and log unrealized PnL
+            if current_position:
+                unrealized_pnl = calculate_unrealized_pnl(current_position, open_price, current_price, usdt_amount)
+                log_unrealized_pnl(current_position, unrealized_pnl, timestamps[i])
 
-    logging.info(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
-    print(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
+        logging.info(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
+        print(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
+    except Exception as e:
+        print(f"Error fetching or plotting klines: {e}")
+
 
 
 def log_trade(position, action, price, pnl=None, timestamp=None):
     """Logs trade actions for opening and closing positions."""
-    # if action == 'OPEN':
-    #     print(f"Opening {position} at {price:.2f}")
-    #     logging.info(f"Opening {position} at {price:.2f}")
-    # elif action == 'CLOSE':
-    #     print(
-    #         f"{timestamp} - Closing {position} at {price:.2f}, Realized PnL: {pnl:.2f}")
-    #     logging.info(
-    #         f"{timestamp} - Closing {position} at {price:.2f}, Realized PnL: {pnl:.2f}")
-    # elif action == 'CLOSE (SL)':
-    #     print(
-    #         f"{timestamp} - Closing {position} at {price:.2f}, Realized PnL: {pnl:.2f}")
-    #     logging.info(
-    #         f"{timestamp} - Closing {position} at {price:.2f}, Realized PnL: {pnl:.2f}")
     timestamp = timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     pnl_info = f", Realized PnL: {pnl:.2f}" if pnl is not None else ""
@@ -543,11 +536,11 @@ def calculate_sl_tp(entry_price, direction='LONG', interval='1h', tp_percentage=
         sl_price = entry_price * (1 + sl_percentage * multiplier)
     else:
         raise ValueError("Invalid direction. Must be 'LONG' or 'SHORT'.")
-    return tp_price,sl_price
-    # return {
-    #     'TP': round(tp_price, 2),  # Round to 2 decimal places
-    #     'SL': round(sl_price, 2)   # Round to 2 decimal places
-    # }
+    
+    return {
+        'TP': round(tp_price, 2),  # Round to 2 decimal places
+        'SL': round(sl_price, 2)   # Round to 2 decimal places
+    }
 
 
 # Run the bot
@@ -558,21 +551,21 @@ if __name__ == "__main__":
     usdt_amount = 2000
     direction = 'LONG'
     symbol = 'BTCUSDT'
-    interval = '15m'
-    limit = 200
+    interval = '5h'
+    limit = 100
     tp_percentage = 0.02  # 2% take profit
     sl_percentage = 0.01  # 1% stop loss
     rsi_buy_threshold = 40
     rsi_sell_threshold = 60
 
-    # back_test_via_pnl(symbol=symbol,
-    #                   limit=limit,
-    #                   interval=interval,
-    #                   usdt_amount=usdt_amount,
-    #                   rsi_buy_threshold=rsi_buy_threshold,
-    #                   rsi_sell_threshold=rsi_sell_threshold,
-    #                   tp_percentage=tp_percentage,
-    #                   sl_percentage=sl_percentage)
+    back_test_via_pnl(symbol=symbol,
+                      limit=limit,
+                      interval=interval,
+                      usdt_amount=usdt_amount,
+                      rsi_buy_threshold=rsi_buy_threshold,
+                      rsi_sell_threshold=rsi_sell_threshold,
+                      tp_percentage=tp_percentage,
+                      sl_percentage=sl_percentage)
 
-    result = calculate_sl_tp(usdt_amount, direction, interval, tp_percentage, sl_percentage)
-    print(result)
+    # result = calculate_sl_tp(usdt_amount, direction, interval, tp_percentage, sl_percentage)
+    # print(result)
