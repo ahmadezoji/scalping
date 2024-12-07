@@ -23,6 +23,8 @@ client = Client(API_KEY, API_SECRET)
 
 def calculate_sma(data, window):
     """Calculate Simple Moving Average."""
+    if len(data) < window:  # Not enough data to calculate SMA
+        return np.nan  # or you can return 0.0, depending on preference
     return np.mean(data[-window:])
 
 
@@ -327,15 +329,18 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
 
         # Calculate indicators
         rsi = calculate_rsi(prices, 14)
-        sma_short = [calculate_sma(prices[max(0, i - 4):i + 1], 5)
-                    for i in range(len(prices))]
-        sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13)
-                    for i in range(len(prices))]
+        sma_short = [calculate_sma(prices[max(0, i - 4):i + 1], 5) if i >= 4 else np.nan for i in range(len(prices))]
+        sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13) if i >= 12 else np.nan for i in range(len(prices))]
+
+
 
         for i in range(14, len(prices)):
             last_rsi = rsi[i]
             current_price = prices[i]
             signal = None
+
+           
+
 
             # Generate trading signal
             if sma_short[i] > sma_long[i] and last_rsi < rsi_buy_threshold:
@@ -551,8 +556,9 @@ if __name__ == "__main__":
     usdt_amount = 2000
     direction = 'LONG'
     symbol = 'BTCUSDT'
-    interval = '5h'
-    limit = 100
+    interval = '5m'
+    limit = 500
+
     tp_percentage = 0.02  # 2% take profit
     sl_percentage = 0.01  # 1% stop loss
     rsi_buy_threshold = 40
@@ -569,3 +575,4 @@ if __name__ == "__main__":
 
     # result = calculate_sl_tp(usdt_amount, direction, interval, tp_percentage, sl_percentage)
     # print(result)
+    
