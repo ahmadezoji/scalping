@@ -1,6 +1,6 @@
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 import numpy as np
@@ -51,14 +51,22 @@ def calculate_rsi(prices, window=14):
 
     return rsi
 
-
-def get_klines(symbol, interval, limit=100):
-    """Fetch candlestick data."""
+def get_klines(symbol, interval, limit=100, start_date=None):
     try:
+
+        if start_date is None:
+           start_date = datetime.now()
+
+        start_time = int(start_date.timestamp() * 1000)
+        
         klines = client.get_klines(
-            symbol=symbol, interval=interval, limit=limit)
-        # Ensure klines contains the expected data structure
-        # Closing price and timestamp
+            symbol=symbol, 
+            interval=interval, 
+            limit=limit, 
+            startTime=start_time
+        )
+
+        # Ensure klines contains the expected data structure (Closing price and timestamp)
         return [(float(kline[4]), int(kline[0])) for kline in klines]
     except Exception as e:
         logging.error(f"Error fetching klines: {e}")
@@ -67,7 +75,7 @@ def get_klines(symbol, interval, limit=100):
 
 def check_sl_tp(position, symbol, tp_price, sl_price):
     """Thread function to check if SL or TP is hit."""
-    global current_position, open_trade_thread,current_quantity
+    global current_position, open_trade_thread, current_quantity
     while current_position:
         try:
             # Fetch the current price
@@ -104,11 +112,12 @@ def check_sl_tp(position, symbol, tp_price, sl_price):
             logging.error(f"Error in SL/TP thread: {e}")
             break
 
+
 def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentage=0.02, sl_percentage=0.01, rsi_buy_threshold=40, rsi_sell_threshold=60,):
     """Scalping bot using RSI and SMA strategy with real orders."""
-    global current_position,current_quantity, open_trade_thread
+    global current_position, current_quantity, open_trade_thread
     current_position = None  # None, 'LONG', or 'SHORT'
-    current_quantity= 0.0
+    current_quantity = 0.0
     open_price = None
 
     while True:
@@ -148,7 +157,8 @@ def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentag
                 execute_trade(symbol, "BUY", usdt_amount)
 
                 sl_tp = calculate_sl_tp(
-                    open_price, 'LONG', tp_percentage, sl_percentage)
+                    open_price, 'LONG', interval, tp_percentage, sl_percentage
+                )
                 open_trade_thread = threading.Thread(
                     target=check_sl_tp, args=(
                         open_price, 'LONG', symbol, sl_tp['TP'], sl_tp['SL'])
@@ -162,7 +172,7 @@ def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentag
                 execute_trade(symbol, "SELL", usdt_amount)
 
                 sl_tp = calculate_sl_tp(
-                    open_price, 'SHORT', tp_percentage, sl_percentage)
+                    open_price, 'SHORT', interval, tp_percentage, sl_percentage)
                 open_trade_thread = threading.Thread(
                     target=check_sl_tp, args=(
                         open_price, 'SHORT', symbol, sl_tp['TP'], sl_tp['SL'])
@@ -177,6 +187,7 @@ def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentag
             print(f"Error: {e}")
             time.sleep(60)
 
+
 def close_futures_position(symbol, position, quantity):
     try:
         if position == 'LONG':
@@ -186,7 +197,7 @@ def close_futures_position(symbol, position, quantity):
                 type='MARKET',
                 quantity=quantity
             )
-        elif position == 'SHORT':  
+        elif position == 'SHORT':
             order = client.futures_create_order(
                 symbol=symbol,
                 side="BUY",
@@ -200,6 +211,8 @@ def close_futures_position(symbol, position, quantity):
     except Exception as e:
         print(f"Error closing position: {e}")
         return None
+
+
 def place_order(symbol, side, usdt_amount):
     """Place a buy or sell order on Binance Futures."""
     global current_quantity
@@ -222,7 +235,6 @@ def place_order(symbol, side, usdt_amount):
 
         # Calculate notional value
         notional_value = float(quantity) * last_price
-
 
         # Ensure quantity is within the allowed range
         if float(quantity) < min_qty or float(quantity) > max_qty:
@@ -259,7 +271,7 @@ def place_order(symbol, side, usdt_amount):
 
 def execute_trade(symbol, signal, usdt_amount=10):
     """Execute a trade based on the signal."""
-    global current_position,current_quantity
+    global current_position, current_quantity
 
     # Determine quantity of BTC to trade (using the last market price)
     try:
@@ -351,7 +363,8 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
         take_profit_price = None
 
         # Fetch historical data
-        klines = get_klines(symbol, interval, limit)
+        start_date = datetime.now() - timedelta(days=1)
+        klines = get_klines(symbol, interval, limit,start_date=start_date)
         if len(klines) < 14:
             logging.warning("Not enough data to perform backtest.")
             return
@@ -562,7 +575,7 @@ def calculate_sl_tp(entry_price, direction='LONG', interval='1h', tp_percentage=
     # Set multiplier according to the interval
     interval_multipliers = {
         '1m': 0.5,
-        '5m': 0.75,
+        '5m': 0.02,
         '15m': 0.9,
         '30m': 1.0,
         '1h': 1.0,
@@ -597,7 +610,7 @@ if __name__ == "__main__":
     # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol=symbol, interval=interval, limit=limit)
     # scalping_bot(symbol,interval,usdt_amount)
-    usdt_amount = 25
+    usdt_amount = 2000
     direction = 'LONG'
     symbol = 'BTCUSDT'
     interval = '5m'
