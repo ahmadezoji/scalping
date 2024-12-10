@@ -23,15 +23,19 @@ client = Client(API_KEY, API_SECRET)
 # client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
 
 
+# Function to calculate Simple Moving Average (SMA)
 def calculate_sma(data, window):
     """Calculate Simple Moving Average."""
-    if len(data) < window:  # Not enough data to calculate SMA
-        return np.nan  # or you can return 0.0, depending on preference
+    if len(data) < window:
+        return np.nan  # Not enough data
     return np.mean(data[-window:])
 
 
+# Function to calculate RSI
 def calculate_rsi(prices, window=14):
     """Calculate Relative Strength Index."""
+    if len(prices) < window:
+        return np.nan  # Not enough data
     deltas = np.diff(prices)
     seed = deltas[:window]
     up = seed[seed >= 0].sum() / window
@@ -49,21 +53,15 @@ def calculate_rsi(prices, window=14):
         rs = up / down if down != 0 else 0
         rsi[i] = 100 - (100 / (1 + rs))
 
-    return rsi
+    return rsi[-1]  # Return the latest RSI value
+
 
 def get_klines(symbol, interval, limit=100, start_date=None):
     try:
-
-        if start_date is None:
-           start_date = datetime.now()
-
-        start_time = int(start_date.timestamp() * 1000)
-        
         klines = client.get_klines(
             symbol=symbol, 
             interval=interval, 
             limit=limit, 
-            startTime=start_time
         )
 
         # Ensure klines contains the expected data structure (Closing price and timestamp)
@@ -134,21 +132,20 @@ def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentag
                 kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
 
             # Calculate indicators
-            rsi = calculate_rsi(prices, 14)
-            sma_short = [calculate_sma(
-                prices[max(0, i - 4):i + 1], 5) if i >= 4 else np.nan for i in range(len(prices))]
-            sma_long = [calculate_sma(prices[max(
-                0, i - 12):i + 1], 13) if i >= 12 else np.nan for i in range(len(prices))]
+            if len(prices) >= 14:
+                rsi = calculate_rsi(prices, 14)
+                sma_short = calculate_sma(prices, 5)
+                sma_long = calculate_sma(prices, 13)
 
-            print(f"{timestamps[-1]} - RSI: {rsi:.2f}, SMA Short (5): {
-                  sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
+                logging.info(f"{timestamps} - RSI: {rsi:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
+                print(f"{datetime.now()} - RSI: {rsi:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
 
-            # Generate trading signal
-            signal = None
-            if sma_short > sma_long and rsi < rsi_buy_threshold:
-                signal = "BUY"
-            elif sma_short < sma_long and rsi > rsi_sell_threshold:
-                signal = "SELL"
+                # Generate trading signal
+                signal = None
+                if sma_short > sma_long and rsi < rsi_buy_threshold:
+                    signal = "BUY"
+                elif sma_short < sma_long and rsi > rsi_sell_threshold:
+                    signal = "SELL"
 
             # Process the signal
             if signal == "BUY" and current_position != "LONG":
@@ -227,11 +224,13 @@ def place_order(symbol, side, usdt_amount):
 
         # Calculate quantity and adjust to the nearest step size
         raw_quantity = usdt_amount / last_price
-        quantity = adjust_quantity(raw_quantity, step_size)
-
-        # Format quantity to the allowed precision
-        quantity = f"{quantity:.{
-            len(str(step_size).split('.')[-1])}f}".rstrip('0').rstrip('.')
+        
+        # **Fixed this line to properly adjust quantity**
+        quantity = raw_quantity - (raw_quantity % step_size)  # Truncate to step size
+        
+        # Format quantity to the allowed precision (based on LOT_SIZE step size)
+        precision = len(str(step_size).split('.')[-1])  # Calculate the number of decimals
+        quantity = float(f"{quantity:.{precision}f}")  # Truncate to precision
 
         # Calculate notional value
         notional_value = float(quantity) * last_price
@@ -239,12 +238,14 @@ def place_order(symbol, side, usdt_amount):
         # Ensure quantity is within the allowed range
         if float(quantity) < min_qty or float(quantity) > max_qty:
             raise ValueError(
-                f"Quantity {quantity} is out of range: [{min_qty}, {max_qty}]")
+                f"Quantity {quantity} is out of range: [{min_qty}, {max_qty}]"
+            )
 
         # Ensure notional value meets the minimum
         if notional_value < min_notional:
-            raise ValueError(f"Notional value {
-                             notional_value} is below the minimum of {min_notional}.")
+            raise ValueError(
+                f"Notional value {notional_value} is below the minimum of {min_notional}."
+            )
 
         # Place the order
         order = client.futures_create_order(
@@ -254,8 +255,7 @@ def place_order(symbol, side, usdt_amount):
             quantity=quantity
         )
         current_quantity = quantity
-        logging.info(f"Order placed: {side} {quantity} of {
-                     symbol}. Order ID: {order['orderId']}")
+        logging.info(f"Order placed: {side} {quantity} of {symbol}. Order ID: {order['orderId']}")
         print(f"Order placed: {side} {quantity} of {symbol}.")
         return order
 
@@ -267,7 +267,6 @@ def place_order(symbol, side, usdt_amount):
         logging.error(f"Unexpected error: {e}")
         print(f"Error: {e}")
         return None
-
 
 def execute_trade(symbol, signal, usdt_amount=10):
     """Execute a trade based on the signal."""
@@ -363,7 +362,7 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
         take_profit_price = None
 
         # Fetch historical data
-        start_date = datetime.now() - timedelta(days=1)
+        start_date = datetime.now()
         klines = get_klines(symbol, interval, limit,start_date=start_date)
         if len(klines) < 14:
             logging.warning("Not enough data to perform backtest.")
@@ -610,9 +609,9 @@ if __name__ == "__main__":
     # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol=symbol, interval=interval, limit=limit)
     # scalping_bot(symbol,interval,usdt_amount)
-    usdt_amount = 2000
+    usdt_amount = 14
     direction = 'LONG'
-    symbol = 'BTCUSDT'
+    symbol = 'DOGEUSDT'
     interval = '5m'
     limit = 300
 
@@ -621,16 +620,17 @@ if __name__ == "__main__":
     rsi_buy_threshold = 40
     rsi_sell_threshold = 60
 
-    # scalping_bot(symbol=symbol, interval=interval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
-    #              sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
-    back_test_via_pnl(symbol=symbol,
-                      limit=limit,
-                      interval=interval,
-                      usdt_amount=usdt_amount,
-                      rsi_buy_threshold=rsi_buy_threshold,
-                      rsi_sell_threshold=rsi_sell_threshold,
-                      tp_percentage=tp_percentage,
-                      sl_percentage=sl_percentage)
+    scalping_bot(symbol=symbol, interval=interval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
+                 sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
+    # order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
+    # back_test_via_pnl(symbol=symbol,
+    #                   limit=limit,
+    #                   interval=interval,
+    #                   usdt_amount=usdt_amount,
+    #                   rsi_buy_threshold=rsi_buy_threshold,
+    #                   rsi_sell_threshold=rsi_sell_threshold,
+    #                   tp_percentage=tp_percentage,
+    #                   sl_percentage=sl_percentage)
 
     # result = calculate_sl_tp(usdt_amount, direction, interval, tp_percentage, sl_percentage)
     # print(result)
