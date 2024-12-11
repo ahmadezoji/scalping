@@ -31,7 +31,31 @@ def calculate_sma(data, window):
     return np.mean(data[-window:])
 
 
+def calculate_rsi_all(prices, window=14):
+    """Calculate Relative Strength Index."""
+    if len(prices) < window:
+        return np.nan  # Not enough data
+    deltas = np.diff(prices)
+    seed = deltas[:window]
+    up = seed[seed >= 0].sum() / window
+    down = -seed[seed < 0].sum() / window
+    rs = up / down if down != 0 else 0
+    rsi = np.zeros_like(prices)
+    rsi[:window] = 50  # Initialize RSI to 50
+
+    for i in range(window, len(prices)):
+        delta = deltas[i - 1] if i > 0 else 0
+        gain = max(delta, 0)
+        loss = -min(delta, 0)
+        up = (up * (window - 1) + gain) / window
+        down = (down * (window - 1) + loss) / window
+        rs = up / down if down != 0 else 0
+        rsi[i] = 100 - (100 / (1 + rs))
+
+    return rsi
 # Function to calculate RSI
+
+
 def calculate_rsi(prices, window=14):
     """Calculate Relative Strength Index."""
     if len(prices) < window:
@@ -56,12 +80,12 @@ def calculate_rsi(prices, window=14):
     return rsi[-1]  # Return the latest RSI value
 
 
-def get_klines(symbol, interval, limit=100, start_date=None):
+def get_klines(symbol, interval, limit=100):
     try:
         klines = client.get_klines(
-            symbol=symbol, 
-            interval=interval, 
-            limit=limit, 
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
         )
 
         # Ensure klines contains the expected data structure (Closing price and timestamp)
@@ -71,7 +95,7 @@ def get_klines(symbol, interval, limit=100, start_date=None):
         return []
 
 
-def check_sl_tp(position, symbol, tp_price, sl_price):
+def check_sl_tp(position, symbol, tp_price, sl_price, open_price, usdt_amount):
     """Thread function to check if SL or TP is hit."""
     global current_position, open_trade_thread, current_quantity
     while current_position:
@@ -79,6 +103,12 @@ def check_sl_tp(position, symbol, tp_price, sl_price):
             # Fetch the current price
             klines = get_klines(symbol, '1m', limit=1)
             current_price = klines[-1][0]
+
+            # Calculate and log unrealized PnL
+            unrealized_pnl = calculate_unrealized_pnl(
+                position, open_price, current_price, usdt_amount)
+            logging.info(f"Unrealized PnL for position {position} on {
+                         symbol}: {unrealized_pnl:.2f} USDT")
 
             if position == "LONG":
                 if current_price >= tp_price:  # Take Profit
@@ -111,7 +141,7 @@ def check_sl_tp(position, symbol, tp_price, sl_price):
             break
 
 
-def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentage=0.02, sl_percentage=0.01, rsi_buy_threshold=40, rsi_sell_threshold=60,):
+def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=200, tp_percentage=0.02, sl_percentage=0.01, rsi_buy_threshold=40, rsi_sell_threshold=60,):
     """Scalping bot using RSI and SMA strategy with real orders."""
     global current_position, current_quantity, open_trade_thread
     current_position = None  # None, 'LONG', or 'SHORT'
@@ -137,8 +167,10 @@ def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentag
                 sma_short = calculate_sma(prices, 5)
                 sma_long = calculate_sma(prices, 13)
 
-                logging.info(f"{timestamps} - RSI: {rsi:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
-                print(f"{datetime.now()} - RSI: {rsi:.2f}, SMA Short (5): {sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
+                logging.info(f"{timestamps[-1]} - RSI: {rsi:.2f}, SMA Short (5): {
+                             sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
+                print(f"{datetime.now()} - RSI: {rsi:.2f}, SMA Short (5): {
+                      sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
 
                 # Generate trading signal
                 signal = None
@@ -149,35 +181,33 @@ def scalping_bot(symbol, interval='1m', limit=500, usdt_amount=200, tp_percentag
 
             # Process the signal
             if signal == "BUY" and current_position != "LONG":
-                current_position = "LONG"
                 open_price = prices[-1]
-                execute_trade(symbol, "BUY", usdt_amount)
-
-                sl_tp = calculate_sl_tp(
-                    open_price, 'LONG', interval, tp_percentage, sl_percentage
-                )
-                open_trade_thread = threading.Thread(
-                    target=check_sl_tp, args=(
-                        open_price, 'LONG', symbol, sl_tp['TP'], sl_tp['SL'])
-                )
-                open_trade_thread.start()
-                log_trade('LONG', 'OPEN', open_price, 0.0, timestamps[-1])
+                if execute_trade(symbol, "BUY", usdt_amount):
+                    sl_tp = calculate_sl_tp(
+                        open_price, 'LONG', interval, tp_percentage, sl_percentage
+                    )
+                    open_trade_thread = threading.Thread(
+                        target=check_sl_tp,
+                        args=('LONG', symbol, sl_tp['TP'],
+                            sl_tp['SL'], open_price, usdt_amount)
+                    )
+                    open_trade_thread.start()
+                    log_trade('LONG', 'OPEN', open_price, 0.0, timestamps[-1])
 
             elif signal == "SELL" and current_position != "SHORT":
-                current_position = "SHORT"
                 open_price = prices[-1]
-                execute_trade(symbol, "SELL", usdt_amount)
+                if execute_trade(symbol, "SELL", usdt_amount):
+                    sl_tp = calculate_sl_tp(
+                        open_price, 'SHORT', interval, tp_percentage, sl_percentage)
+                    open_trade_thread = threading.Thread(
+                        target=check_sl_tp,
+                        args=('SHORT', symbol,
+                            sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
+                    )
+                    open_trade_thread.start()
+                    log_trade('SHORT', 'OPEN', open_price, 0.0, timestamps[-1])
 
-                sl_tp = calculate_sl_tp(
-                    open_price, 'SHORT', interval, tp_percentage, sl_percentage)
-                open_trade_thread = threading.Thread(
-                    target=check_sl_tp, args=(
-                        open_price, 'SHORT', symbol, sl_tp['TP'], sl_tp['SL'])
-                )
-                open_trade_thread.start()
-                log_trade('SHORT', 'OPEN', open_price, 0.0, timestamps[-1])
-
-            time.sleep(5*60)
+            time.sleep(timeInterval*60)
 
         except Exception as e:
             logging.error(f"Unexpected error: {e}")
@@ -209,11 +239,71 @@ def close_futures_position(symbol, position, quantity):
         print(f"Error closing position: {e}")
         return None
 
+def set_leverage(symbol, leverage=1):
+    """
+    Set leverage for the given symbol.
+    
+    Args:
+        symbol (str): Trading pair, e.g., 'BTCUSDT'.
+        leverage (int): The leverage to be set. Default is 1x.
+    """
+    try:
+        response = client.futures_change_leverage(
+            symbol=symbol,
+            leverage=leverage
+        )
+        logging.info(f"Leverage set to {leverage}x for {symbol}. Response: {response}")
+        print(f"Leverage set to {leverage}x for {symbol}.")
+        return response
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception while setting leverage: {e}")
+        print(f"Error setting leverage: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error while setting leverage: {e}")
+        print(f"Unexpected error: {e}")
+        return None
+
+
+def set_margin_mode(symbol, margin_type="ISOLATED"):
+    """
+    Set margin mode for the given symbol.
+    
+    Args:
+        symbol (str): Trading pair, e.g., 'BTCUSDT'.
+        margin_type (str): Margin mode to set ('ISOLATED' or 'CROSSED'). Default is 'ISOLATED'.
+    """
+    try:
+        response = client.futures_change_margin_type(
+            symbol=symbol,
+            marginType=margin_type
+        )
+        logging.info(f"Margin mode set to {margin_type} for {symbol}. Response: {response}")
+        print(f"Margin mode set to {margin_type} for {symbol}.")
+        return response
+    except BinanceAPIException as e:
+        if "No need to change margin type." in str(e):
+            logging.info(f"Margin type for {symbol} is already set to {margin_type}.")
+            print(f"Margin type for {symbol} is already set to {margin_type}.")
+        else:
+            logging.error(f"Binance API Exception while setting margin mode: {e}")
+            print(f"Error setting margin mode: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error while setting margin mode: {e}")
+        print(f"Unexpected error: {e}")
+        return None
 
 def place_order(symbol, side, usdt_amount):
     """Place a buy or sell order on Binance Futures."""
     global current_quantity
     try:
+
+         # **Set the leverage to 1x and the margin mode to ISOLATED**
+        set_margin_mode(symbol, margin_type="ISOLATED")
+        set_leverage(symbol, leverage=1)
+
+
         # Get the current price
         ticker = client.futures_symbol_ticker(symbol=symbol)
         last_price = float(ticker['price'])
@@ -224,12 +314,14 @@ def place_order(symbol, side, usdt_amount):
 
         # Calculate quantity and adjust to the nearest step size
         raw_quantity = usdt_amount / last_price
-        
+
         # **Fixed this line to properly adjust quantity**
-        quantity = raw_quantity - (raw_quantity % step_size)  # Truncate to step size
-        
+        quantity = raw_quantity - (raw_quantity %
+                                   step_size)  # Truncate to step size
+
         # Format quantity to the allowed precision (based on LOT_SIZE step size)
-        precision = len(str(step_size).split('.')[-1])  # Calculate the number of decimals
+        # Calculate the number of decimals
+        precision = len(str(step_size).split('.')[-1])
         quantity = float(f"{quantity:.{precision}f}")  # Truncate to precision
 
         # Calculate notional value
@@ -244,7 +336,8 @@ def place_order(symbol, side, usdt_amount):
         # Ensure notional value meets the minimum
         if notional_value < min_notional:
             raise ValueError(
-                f"Notional value {notional_value} is below the minimum of {min_notional}."
+                f"Notional value {notional_value} is below the minimum of {
+                    min_notional}."
             )
 
         # Place the order
@@ -255,7 +348,8 @@ def place_order(symbol, side, usdt_amount):
             quantity=quantity
         )
         current_quantity = quantity
-        logging.info(f"Order placed: {side} {quantity} of {symbol}. Order ID: {order['orderId']}")
+        logging.info(f"Order placed: {side} {quantity} of {
+                     symbol}. Order ID: {order['orderId']}")
         print(f"Order placed: {side} {quantity} of {symbol}.")
         return order
 
@@ -268,36 +362,36 @@ def place_order(symbol, side, usdt_amount):
         print(f"Error: {e}")
         return None
 
+
 def execute_trade(symbol, signal, usdt_amount=10):
     """Execute a trade based on the signal."""
     global current_position, current_quantity
 
     # Determine quantity of BTC to trade (using the last market price)
     try:
-        # ticker = client.get_ticker(symbol=symbol)
-        # last_price = float(ticker['lastPrice'])
-        # btc_quantity = round(usdt_amount / last_price, 6)  # Adjust precision as needed
-
         if signal == "BUY":
-            if current_position == "BUY":
+            if current_position == "LONG":
                 logging.info(
                     "Already in a BUY position, skipping new BUY signal.")
                 print("Already in a BUY position, skipping new BUY signal.")
+                return False
             else:
-                order = place_order(symbol, side="BUY", quantity=usdt_amount)
+                order = place_order(symbol, side="BUY", usdt_amount=usdt_amount)
                 if order:
-                    current_position = "BUY"
+                    current_position = "LONG"
+                return True
 
         elif signal == "SELL":
-            if current_position == "BUY":
-                # Close the long position
-                order = place_order(symbol, side="SELL", quantity=usdt_amount)
-                if order:
-                    current_position = None
-            else:
+            if current_position == "SHORT":
                 logging.info(
-                    "No active BUY position to close, skipping SELL signal.")
-                print("No active BUY position to close, skipping SELL signal.")
+                    "Already in a SELL position, skipping new SELL signal.")
+                print("Already in a SELL position, skipping new SELL signal.")
+                return False
+            else:
+                order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
+                if order:
+                    current_position = "SHORT"
+                return True
 
     except BinanceAPIException as e:
         logging.error(f"Binance API Exception: {e}")
@@ -362,8 +456,7 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
         take_profit_price = None
 
         # Fetch historical data
-        start_date = datetime.now()
-        klines = get_klines(symbol, interval, limit,start_date=start_date)
+        klines = get_klines(symbol, interval, limit)
         if len(klines) < 14:
             logging.warning("Not enough data to perform backtest.")
             return
@@ -373,7 +466,7 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
             kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
 
         # Calculate indicators
-        rsi = calculate_rsi(prices, 14)
+        rsi = calculate_rsi_all(prices, 14)
         sma_short = [calculate_sma(
             prices[max(0, i - 4):i + 1], 5) if i >= 4 else np.nan for i in range(len(prices))]
         sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13)
@@ -573,7 +666,7 @@ def calculate_sl_tp(entry_price, direction='LONG', interval='1h', tp_percentage=
 
     # Set multiplier according to the interval
     interval_multipliers = {
-        '1m': 0.5,
+        '1m': 1.0,
         '5m': 0.02,
         '15m': 0.9,
         '30m': 1.0,
@@ -612,15 +705,16 @@ if __name__ == "__main__":
     usdt_amount = 14
     direction = 'LONG'
     symbol = 'DOGEUSDT'
-    interval = '5m'
+    interval = '1m'
+    timeInterval = 1
     limit = 300
 
-    tp_percentage = 0.02  # 2% take profit
-    sl_percentage = 0.01  # 1% stop loss
-    rsi_buy_threshold = 40
-    rsi_sell_threshold = 60
+    tp_percentage = 0.08
+    sl_percentage = 0.04
+    rsi_buy_threshold = 46
+    rsi_sell_threshold = 54
 
-    scalping_bot(symbol=symbol, interval=interval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
+    scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
                  sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
     # order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
     # back_test_via_pnl(symbol=symbol,
