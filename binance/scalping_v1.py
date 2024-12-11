@@ -7,7 +7,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from decimal import Decimal
 import threading
+import requests  # Import requests to send HTTP requests to Telegram
 
+# Add your Telegram Bot Token and Chat ID here
+TELEGRAM_BOT_TOKEN = '8116738142:AAHAR84spukz3PJVPM6tk5jv94WkDeOJO_U'
+TELEGRAM_CHAT_ID = '928383272'
 
 # Set up logging
 logging.basicConfig(
@@ -294,14 +298,36 @@ def set_margin_mode(symbol, margin_type="ISOLATED"):
         print(f"Unexpected error: {e}")
         return None
 
+def send_telegram_message(message):
+    """
+    Send a message to the Telegram group using the Telegram Bot API.
+    Args:
+        message (str): The message content to send.
+    """
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message,
+            'parse_mode': 'HTML'
+        }
+        response = requests.post(url, json=payload)
+        if response.status_code == 200:
+            logging.info("Message sent to Telegram successfully.")
+        else:
+            logging.error(f"Failed to send message to Telegram. Response: {response.json()}")
+    except Exception as e:
+        logging.error(f"Unexpected error while sending Telegram message: {e}")
+        print(f"Error sending Telegram message: {e}")
+
 def place_order(symbol, side, usdt_amount):
     """Place a buy or sell order on Binance Futures."""
     global current_quantity
     try:
 
          # **Set the leverage to 1x and the margin mode to ISOLATED**
-        set_margin_mode(symbol, margin_type="ISOLATED")
-        set_leverage(symbol, leverage=1)
+        # set_margin_mode(symbol, margin_type="ISOLATED")
+        # set_leverage(symbol, leverage=1)
 
 
         # Get the current price
@@ -351,6 +377,18 @@ def place_order(symbol, side, usdt_amount):
         logging.info(f"Order placed: {side} {quantity} of {
                      symbol}. Order ID: {order['orderId']}")
         print(f"Order placed: {side} {quantity} of {symbol}.")
+
+
+        # Send message to Telegram group
+        message = f"🚀 <b>New Order Placed</b> 🚀\n" \
+                  f"📈 <b>Symbol:</b> {symbol}\n" \
+                  f"🔁 <b>Action:</b> {side}\n" \
+                  f"💵 <b>Quantity:</b> {quantity}\n" \
+                  f"💰 <b>Price:</b> {last_price}\n" \
+       
+        
+        send_telegram_message(message)
+
         return order
 
     except BinanceAPIException as e:
@@ -714,9 +752,9 @@ if __name__ == "__main__":
     rsi_buy_threshold = 46
     rsi_sell_threshold = 54
 
-    scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
-                 sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
-    # order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
+    # scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
+    #              sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
+    order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
     # back_test_via_pnl(symbol=symbol,
     #                   limit=limit,
     #                   interval=interval,
