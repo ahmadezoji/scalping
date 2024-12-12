@@ -13,11 +13,17 @@ import requests  # Import requests to send HTTP requests to Telegram
 TELEGRAM_BOT_TOKEN = '8116738142:AAHAR84spukz3PJVPM6tk5jv94WkDeOJO_U'
 TELEGRAM_CHAT_ID = '928383272'
 
-# Set up logging
+# # Set up logging
+# logging.basicConfig(
+#     filename='scalping_bot.log',
+#     level=logging.INFO,
+#     format='%(asctime)s - %(message)s'
+# )
+
 logging.basicConfig(
-    filename='scalping_bot.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s'
+    level=logging.INFO,  # Set level to INFO to display info logs
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]  # Output logs to console
 )
 
 # Initialize Binance client
@@ -106,13 +112,14 @@ def check_sl_tp(position, symbol, tp_price, sl_price, open_price, usdt_amount):
         try:
             # Fetch the current price
             klines = get_klines(symbol, '1m', limit=1)
-            current_price = klines[-1][0]
+       
 
+            prices = [kline[0] for kline in klines] 
+            current_price =prices[-1] 
             # Calculate and log unrealized PnL
             unrealized_pnl = calculate_unrealized_pnl(
                 position, open_price, current_price, usdt_amount)
-            logging.info(f"Unrealized PnL for position {position} on {
-                         symbol}: {unrealized_pnl:.2f} USDT")
+            logging.info(f"Unrealized PnL for position {position} on {symbol}: {unrealized_pnl:.2f} USDT")
 
             if position == "LONG":
                 if current_price >= tp_price:  # Take Profit
@@ -237,6 +244,13 @@ def close_futures_position(symbol, position, quantity):
             )
 
         print(f"Order Closed successfully: {order}")
+         # Send message to Telegram group
+        message = f"🚀 <b>Close Order</b> 🚀\n" \
+                  f"📈 <b>Symbol:</b> {symbol}\n" \
+                  f"🔁 <b>Action:</b> {position}\n" \
+                  f"💵 <b>Quantity:</b> {quantity}\n"
+        
+        send_telegram_message(message)
         return order
 
     except Exception as e:
@@ -743,8 +757,8 @@ if __name__ == "__main__":
     usdt_amount = 14
     direction = 'LONG'
     symbol = 'DOGEUSDT'
-    interval = '1m'
-    timeInterval = 1
+    interval = '5m'
+    timeInterval = 5
     limit = 300
 
     tp_percentage = 0.08
@@ -752,9 +766,9 @@ if __name__ == "__main__":
     rsi_buy_threshold = 46
     rsi_sell_threshold = 54
 
-    # scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
-    #              sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
-    order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
+    scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
+                 sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
+    # order = place_order(symbol, side="BUY", usdt_amount=usdt_amount)
     # back_test_via_pnl(symbol=symbol,
     #                   limit=limit,
     #                   interval=interval,
