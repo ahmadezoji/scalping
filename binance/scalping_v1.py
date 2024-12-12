@@ -22,7 +22,7 @@ TELEGRAM_CHAT_ID = '928383272'
 
 logging.basicConfig(
     level=logging.INFO,  # Set level to INFO to display info logs
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]  # Output logs to console
 )
 
@@ -180,9 +180,7 @@ def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=2
 
                 logging.info(f"{timestamps[-1]} - RSI: {rsi:.2f}, SMA Short (5): {
                              sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
-                print(f"{datetime.now()} - RSI: {rsi:.2f}, SMA Short (5): {
-                      sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
-
+             
                 # Generate trading signal
                 signal = None
                 if sma_short > sma_long and rsi < rsi_buy_threshold:
@@ -271,7 +269,6 @@ def set_leverage(symbol, leverage=1):
             leverage=leverage
         )
         logging.info(f"Leverage set to {leverage}x for {symbol}. Response: {response}")
-        print(f"Leverage set to {leverage}x for {symbol}.")
         return response
     except BinanceAPIException as e:
         logging.error(f"Binance API Exception while setting leverage: {e}")
@@ -297,7 +294,6 @@ def set_margin_mode(symbol, margin_type="ISOLATED"):
             marginType=margin_type
         )
         logging.info(f"Margin mode set to {margin_type} for {symbol}. Response: {response}")
-        print(f"Margin mode set to {margin_type} for {symbol}.")
         return response
     except BinanceAPIException as e:
         if "No need to change margin type." in str(e):
@@ -390,7 +386,6 @@ def place_order(symbol, side, usdt_amount):
         current_quantity = quantity
         logging.info(f"Order placed: {side} {quantity} of {
                      symbol}. Order ID: {order['orderId']}")
-        print(f"Order placed: {side} {quantity} of {symbol}.")
 
 
         # Send message to Telegram group
@@ -425,7 +420,6 @@ def execute_trade(symbol, signal, usdt_amount=10):
             if current_position == "LONG":
                 logging.info(
                     "Already in a BUY position, skipping new BUY signal.")
-                print("Already in a BUY position, skipping new BUY signal.")
                 return False
             else:
                 order = place_order(symbol, side="BUY", usdt_amount=usdt_amount)
@@ -437,7 +431,6 @@ def execute_trade(symbol, signal, usdt_amount=10):
             if current_position == "SHORT":
                 logging.info(
                     "Already in a SELL position, skipping new SELL signal.")
-                print("Already in a SELL position, skipping new SELL signal.")
                 return False
             else:
                 order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
@@ -489,7 +482,6 @@ def back_test(symbol, interval='1m', limit=100):
                 log_message = f"{
                     time_of_signal} - Signal: {signal}, Price: {price:.2f}, RSI: {rsi[i]:.2f}"
                 logging.info(log_message)
-                print(log_message)
 
     except Exception as e:
         logging.error(f"Unexpected error during backtest: {e}")
@@ -621,7 +613,6 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
                     current_position, unrealized_pnl, timestamps[i])
 
         logging.info(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
-        print(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
     except Exception as e:
         print(f"Error fetching or plotting klines: {e}")
 
@@ -633,14 +624,12 @@ def log_trade(position, action, price, pnl=None, timestamp=None):
     pnl_info = f", Realized PnL: {pnl:.2f}" if pnl is not None else ""
     message = f"{timestamp} - {action} {position} at {price:.2f}{pnl_info}"
 
-    print(message)
     logging.info(message)
 
 
 def log_unrealized_pnl(position, unrealized_pnl, timestamp):
     """Logs the unrealized PnL for open positions."""
     if position in ['LONG', 'SHORT']:
-        print(f"{timestamp} - {position} Unrealized PnL: {unrealized_pnl:.2f}")
         logging.info(
             f"{timestamp} - {position} Unrealized PnL: {unrealized_pnl:.2f}")
 
@@ -761,10 +750,10 @@ if __name__ == "__main__":
     timeInterval = 5
     limit = 300
 
-    tp_percentage = 0.08
-    sl_percentage = 0.04
-    rsi_buy_threshold = 46
-    rsi_sell_threshold = 54
+    tp_percentage = 0.02
+    sl_percentage = 0.01
+    rsi_buy_threshold = 45
+    rsi_sell_threshold = 55
 
     scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
                  sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
@@ -779,4 +768,3 @@ if __name__ == "__main__":
     #                   sl_percentage=sl_percentage)
 
     # result = calculate_sl_tp(usdt_amount, direction, interval, tp_percentage, sl_percentage)
-    # print(result)
