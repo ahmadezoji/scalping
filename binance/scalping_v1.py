@@ -33,12 +33,13 @@ API_SECRET = 'gQWW6QW73sh9a83O4B5W6MzEmnXRxE55hsqM2Lvz1I27CtFog5EqBPI8moFIPICb'
 try:
     client = Client(API_KEY, API_SECRET, testnet=False)
     # client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
-    client.ping()
-    print("Ping successful!")
+
 except Exception as e:
     print(f"Error during ping: {e}")
 
 # Function to calculate Simple Moving Average (SMA)
+
+
 def calculate_sma(data, window):
     """Calculate Simple Moving Average."""
     if len(data) < window:
@@ -94,6 +95,7 @@ def calculate_rsi(prices, window=14):
 
     return rsi[-1]  # Return the latest RSI value
 
+
 def get_klines_with_start(symbol, interval, limit=100, start_time=None, end_time=None):
     try:
         klines = client.get_klines(
@@ -109,6 +111,7 @@ def get_klines_with_start(symbol, interval, limit=100, start_time=None, end_time
     except Exception as e:
         logging.error(f"Error fetching klines: {e}")
         return []
+
 
 def get_klines(symbol, interval, limit=100):
     try:
@@ -132,14 +135,14 @@ def check_sl_tp(position, symbol, tp_price, sl_price, open_price, usdt_amount):
         try:
             # Fetch the current price
             klines = get_klines(symbol, '1m', limit=1)
-       
 
-            prices = [kline[0] for kline in klines] 
-            current_price =prices[-1] 
+            prices = [kline[0] for kline in klines]
+            current_price = prices[-1]
             # Calculate and log unrealized PnL
             unrealized_pnl = calculate_unrealized_pnl(
                 position, open_price, current_price, usdt_amount)
-            logging.info(f"Unrealized PnL for position {position} on {symbol}: {unrealized_pnl:.2f} USDT")
+            logging.info(f"Unrealized PnL for position {position} on {
+                         symbol}: {unrealized_pnl} USDT")
 
             if position == "LONG":
                 if current_price >= tp_price:  # Take Profit
@@ -200,7 +203,7 @@ def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=2
 
                 logging.info(f"{timestamps[-1]} - RSI: {rsi:.2f}, SMA Short (5): {
                              sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
-             
+
                 # Generate trading signal
                 signal = None
                 if sma_short > sma_long and rsi < rsi_buy_threshold:
@@ -218,7 +221,7 @@ def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=2
                     open_trade_thread = threading.Thread(
                         target=check_sl_tp,
                         args=('LONG', symbol, sl_tp['TP'],
-                            sl_tp['SL'], open_price, usdt_amount)
+                              sl_tp['SL'], open_price, usdt_amount)
                     )
                     open_trade_thread.start()
                     log_trade('LONG', 'OPEN', open_price, 0.0, timestamps[-1])
@@ -231,7 +234,7 @@ def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=2
                     open_trade_thread = threading.Thread(
                         target=check_sl_tp,
                         args=('SHORT', symbol,
-                            sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
+                              sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
                     )
                     open_trade_thread.start()
                     log_trade('SHORT', 'OPEN', open_price, 0.0, timestamps[-1])
@@ -244,226 +247,78 @@ def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=2
             time.sleep(60)
 
 
-def close_futures_position(symbol, position, quantity):
-    try:
-        if position == 'LONG':
-            order = client.futures_create_order(
-                symbol=symbol,
-                side="SELL",
-                type='MARKET',
-                quantity=quantity
-            )
-        elif position == 'SHORT':
-            order = client.futures_create_order(
-                symbol=symbol,
-                side="BUY",
-                type='MARKET',
-                quantity=quantity
-            )
+def scalping_bot_periodically(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=200, tp_percentage=0.02, sl_percentage=0.01, rsi_buy_threshold=40, rsi_sell_threshold=60,):
+    """Scalping bot using RSI and SMA strategy with real orders."""
+    global current_position, current_quantity, open_trade_thread
+    current_position = None  # None, 'LONG', or 'SHORT'
+    current_quantity = 0.0
+    open_price = None
 
-        print(f"Order Closed successfully: {order}")
-         # Send message to Telegram group
-        message = f"🚀 <b>Close Order</b> 🚀\n" \
-                  f"📈 <b>Symbol:</b> {symbol}\n" \
-                  f"🔁 <b>Action:</b> {position}\n" \
-                  f"💵 <b>Quantity:</b> {quantity}\n"
-        
-        send_telegram_message(message)
-        return order
+    while True:
+        try:
+            # Fetch data
+            klines = get_klines(symbol, interval, limit=limit)
+            if len(klines) < 14:
+                logging.warning("Not enough data to calculate indicators.")
+                time.sleep(60)
+                continue
 
-    except Exception as e:
-        print(f"Error closing position: {e}")
-        return None
+            prices = [kline[0] for kline in klines]  # Extract close prices
+            timestamps = [datetime.fromtimestamp(
+                kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
 
-def set_leverage(symbol, leverage=1):
-    """
-    Set leverage for the given symbol.
-    
-    Args:
-        symbol (str): Trading pair, e.g., 'BTCUSDT'.
-        leverage (int): The leverage to be set. Default is 1x.
-    """
-    try:
-        response = client.futures_change_leverage(
-            symbol=symbol,
-            leverage=leverage
-        )
-        logging.info(f"Leverage set to {leverage}x for {symbol}. Response: {response}")
-        return response
-    except BinanceAPIException as e:
-        logging.error(f"Binance API Exception while setting leverage: {e}")
-        print(f"Error setting leverage: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error while setting leverage: {e}")
-        print(f"Unexpected error: {e}")
-        return None
+            # Calculate indicators
+            if len(prices) >= 14:
+                rsi = calculate_rsi(prices, 14)
+                sma_short = calculate_sma(prices, 5)
+                sma_long = calculate_sma(prices, 13)
 
+                logging.info(f"{timestamps[-1]} - RSI: {rsi:.2f}, SMA Short (5): {
+                             sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
 
-def set_margin_mode(symbol, margin_type="ISOLATED"):
-    """
-    Set margin mode for the given symbol.
-    
-    Args:
-        symbol (str): Trading pair, e.g., 'BTCUSDT'.
-        margin_type (str): Margin mode to set ('ISOLATED' or 'CROSSED'). Default is 'ISOLATED'.
-    """
-    try:
-        response = client.futures_change_margin_type(
-            symbol=symbol,
-            marginType=margin_type
-        )
-        logging.info(f"Margin mode set to {margin_type} for {symbol}. Response: {response}")
-        return response
-    except BinanceAPIException as e:
-        if "No need to change margin type." in str(e):
-            logging.info(f"Margin type for {symbol} is already set to {margin_type}.")
-            print(f"Margin type for {symbol} is already set to {margin_type}.")
-        else:
-            logging.error(f"Binance API Exception while setting margin mode: {e}")
-            print(f"Error setting margin mode: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error while setting margin mode: {e}")
-        print(f"Unexpected error: {e}")
-        return None
+                # Generate trading signal
+                signal = None
+                if sma_short > sma_long and rsi < rsi_buy_threshold:
+                    signal = "BUY"
+                elif sma_short < sma_long and rsi > rsi_sell_threshold:
+                    signal = "SELL"
 
-def send_telegram_message(message):
-    """
-    Send a message to the Telegram group using the Telegram Bot API.
-    Args:
-        message (str): The message content to send.
-    """
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            'chat_id': TELEGRAM_CHAT_ID,
-            'text': message,
-            'parse_mode': 'HTML'
-        }
-        response = requests.post(url, json=payload)
-        if response.status_code == 200:
-            logging.info("Message sent to Telegram successfully.")
-        else:
-            logging.error(f"Failed to send message to Telegram. Response: {response.json()}")
-    except Exception as e:
-        logging.error(f"Unexpected error while sending Telegram message: {e}")
-        print(f"Error sending Telegram message: {e}")
+            # Process the signal
+            if signal == "BUY" and current_position != "LONG":
+                if execute_trade(symbol, "BUY", usdt_amount):
+                    atr_value = calculate_atr(prices, window=14)
+                    sl_tp = calculate_sl_tp_with_atr(
+                        prices[-1], 'LONG', atr_value, multiplier=1.5)
+                    open_trade_thread = threading.Thread(
+                        target=check_sl_tp,
+                        args=('LONG', symbol, sl_tp['TP'],
+                              sl_tp['SL'], open_price, usdt_amount)
+                    )
+                    open_trade_thread.start()
+                    open_price = prices[-1]
+                    log_trade('LONG', 'OPEN', open_price, 0.0, timestamps[-1])
 
-def place_order(symbol, side, usdt_amount):
-    """Place a buy or sell order on Binance Futures."""
-    global current_quantity
-    try:
+            elif signal == "SELL" and current_position != "SHORT":
+                if execute_trade(symbol, "SELL", usdt_amount):
+                    atr_value = calculate_atr(prices, window=14)
+                    sl_tp = calculate_sl_tp_with_atr(
+                        prices[-1], 'LONG', atr_value, multiplier=1.5)
+                    open_trade_thread = threading.Thread(
+                        target=check_sl_tp,
+                        args=('SHORT', symbol,
+                              sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
+                    )
+                    open_trade_thread.start()
+                    open_price = prices[-1]
+                    log_trade('SHORT', 'OPEN', open_price, 0.0, timestamps[-1])
 
-         # **Set the leverage to 1x and the margin mode to ISOLATED**
-        # set_margin_mode(symbol, margin_type="ISOLATED")
-        # set_leverage(symbol, leverage=1)
+            time.sleep(timeInterval*60)
 
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
+            print(f"Error: {e}")
+            time.sleep(60)
 
-        # Get the current price
-        ticker = client.futures_symbol_ticker(symbol=symbol)
-        last_price = float(ticker['price'])
-
-        # Get LOT_SIZE and NOTIONAL filters
-        min_qty, max_qty, step_size = get_lot_size(symbol)
-        min_notional = get_notional_min(symbol)
-
-        # Calculate quantity and adjust to the nearest step size
-        raw_quantity = usdt_amount / last_price
-
-        # **Fixed this line to properly adjust quantity**
-        quantity = raw_quantity - (raw_quantity %
-                                   step_size)  # Truncate to step size
-
-        # Format quantity to the allowed precision (based on LOT_SIZE step size)
-        # Calculate the number of decimals
-        precision = len(str(step_size).split('.')[-1])
-        quantity = float(f"{quantity:.{precision}f}")  # Truncate to precision
-
-        # Calculate notional value
-        notional_value = float(quantity) * last_price
-
-        # Ensure quantity is within the allowed range
-        if float(quantity) < min_qty or float(quantity) > max_qty:
-            raise ValueError(
-                f"Quantity {quantity} is out of range: [{min_qty}, {max_qty}]"
-            )
-
-        # Ensure notional value meets the minimum
-        if notional_value < min_notional:
-            raise ValueError(
-                f"Notional value {notional_value} is below the minimum of {
-                    min_notional}."
-            )
-
-        # Place the order
-        order = client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type='MARKET',
-            quantity=quantity
-        )
-        current_quantity = quantity
-        logging.info(f"Order placed: {side} {quantity} of {
-                     symbol}. Order ID: {order['orderId']}")
-
-
-        # Send message to Telegram group
-        message = f"🚀 <b>New Order Placed</b> 🚀\n" \
-                  f"📈 <b>Symbol:</b> {symbol}\n" \
-                  f"🔁 <b>Action:</b> {side}\n" \
-                  f"💵 <b>Quantity:</b> {quantity}\n" \
-                  f"💰 <b>Price:</b> {last_price}\n" \
-       
-        
-        send_telegram_message(message)
-
-        return order
-
-    except BinanceAPIException as e:
-        logging.error(f"Binance API Exception: {e}")
-        print(f"Error: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        print(f"Error: {e}")
-        return None
-
-
-def execute_trade(symbol, signal, usdt_amount=10):
-    """Execute a trade based on the signal."""
-    global current_position, current_quantity
-
-    # Determine quantity of BTC to trade (using the last market price)
-    try:
-        if signal == "BUY":
-            if current_position == "LONG":
-                logging.info(
-                    "Already in a BUY position, skipping new BUY signal.")
-                return False
-            else:
-                order = place_order(symbol, side="BUY", usdt_amount=usdt_amount)
-                if order:
-                    current_position = "LONG"
-                return True
-
-        elif signal == "SELL":
-            if current_position == "SHORT":
-                logging.info(
-                    "Already in a SELL position, skipping new SELL signal.")
-                return False
-            else:
-                order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
-                if order:
-                    current_position = "SHORT"
-                return True
-
-    except BinanceAPIException as e:
-        logging.error(f"Binance API Exception: {e}")
-        print(f"Error: {e}")
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        print(f"Error: {e}")
 
 def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
                       rsi_buy_threshold=40, rsi_sell_threshold=60,
@@ -563,7 +418,8 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
                 open_price = current_price
 
                 atr_value = calculate_atr(prices, window=14)
-                sl_tp = calculate_sl_tp_with_atr(open_price, 'LONG', atr_value, multiplier=1.5)
+                sl_tp = calculate_sl_tp_with_atr(
+                    open_price, 'LONG', atr_value, multiplier=1.5)
 
                 # sl_tp = calculate_sl_tp(
                 #     open_price, 'LONG', tp_percentage, sl_percentage)
@@ -582,9 +438,10 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
                 current_position = "SHORT"
                 open_price = current_price
                 atr_value = calculate_atr(prices, window=14)
-                sl_tp = calculate_sl_tp_with_atr(open_price, 'SHORT', atr_value, multiplier=1.5)
+                sl_tp = calculate_sl_tp_with_atr(
+                    open_price, 'SHORT', atr_value, multiplier=1.5)
                 # sl_tp = calculate_sl_tp(
-                    # open_price, 'SHORT', tp_percentage, sl_percentage)
+                # open_price, 'SHORT', tp_percentage, sl_percentage)
                 stop_loss_price = sl_tp['SL']
                 take_profit_price = sl_tp['TP']
                 log_trade('SHORT', 'OPEN', current_price, 0.0, timestamps[i])
@@ -599,6 +456,236 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
         logging.info(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
     except Exception as e:
         print(f"Error fetching or plotting klines: {e}")
+
+
+def close_futures_position(symbol, position, quantity):
+    try:
+        if position == 'LONG':
+            order = client.futures_create_order(
+                symbol=symbol,
+                side="SELL",
+                type='MARKET',
+                quantity=quantity
+            )
+        elif position == 'SHORT':
+            order = client.futures_create_order(
+                symbol=symbol,
+                side="BUY",
+                type='MARKET',
+                quantity=quantity
+            )
+
+        print(f"Order Closed successfully: {order}")
+        # Send message to Telegram group
+        message = f"🚀 <b>Close Order</b> 🚀\n" \
+            f"📈 <b>Symbol:</b> {symbol}\n" \
+            f"🔁 <b>Action:</b> {position}\n" \
+            f"💵 <b>Quantity:</b> {quantity}\n"
+
+        send_telegram_message(message)
+        return order
+
+    except Exception as e:
+        print(f"Error closing position: {e}")
+        return None
+
+
+def set_leverage(symbol, leverage=1):
+    """
+    Set leverage for the given symbol.
+
+    Args:
+        symbol (str): Trading pair, e.g., 'BTCUSDT'.
+        leverage (int): The leverage to be set. Default is 1x.
+    """
+    try:
+        response = client.futures_change_leverage(
+            symbol=symbol,
+            leverage=leverage
+        )
+        logging.info(f"Leverage set to {leverage}x for {
+                     symbol}. Response: {response}")
+        return response
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception while setting leverage: {e}")
+        print(f"Error setting leverage: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error while setting leverage: {e}")
+        print(f"Unexpected error: {e}")
+        return None
+
+
+def set_margin_mode(symbol, margin_type="ISOLATED"):
+    """
+    Set margin mode for the given symbol.
+
+    Args:
+        symbol (str): Trading pair, e.g., 'BTCUSDT'.
+        margin_type (str): Margin mode to set ('ISOLATED' or 'CROSSED'). Default is 'ISOLATED'.
+    """
+    try:
+        response = client.futures_change_margin_type(
+            symbol=symbol,
+            marginType=margin_type
+        )
+        logging.info(f"Margin mode set to {margin_type} for {
+                     symbol}. Response: {response}")
+        return response
+    except BinanceAPIException as e:
+        if "No need to change margin type." in str(e):
+            logging.info(f"Margin type for {
+                         symbol} is already set to {margin_type}.")
+            print(f"Margin type for {symbol} is already set to {margin_type}.")
+        else:
+            logging.error(
+                f"Binance API Exception while setting margin mode: {e}")
+            print(f"Error setting margin mode: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error while setting margin mode: {e}")
+        print(f"Unexpected error: {e}")
+        return None
+
+
+def send_telegram_message(message):
+    """
+    Send a message to the Telegram group using the Telegram Bot API.
+    Args:
+        message (str): The message content to send.
+    """
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message,
+            'parse_mode': 'HTML'
+        }
+        response = requests.post(url, json=payload)
+        if response.status_code == 200:
+            logging.info("Message sent to Telegram successfully.")
+        else:
+            logging.error(f"Failed to send message to Telegram. Response: {
+                          response.json()}")
+    except Exception as e:
+        logging.error(f"Unexpected error while sending Telegram message: {e}")
+        print(f"Error sending Telegram message: {e}")
+
+
+def place_order(symbol, side, usdt_amount):
+    """Place a buy or sell order on Binance Futures."""
+    global current_quantity
+    try:
+
+        # **Set the leverage to 1x and the margin mode to ISOLATED**
+        # set_margin_mode(symbol, margin_type="ISOLATED")
+        # set_leverage(symbol, leverage=1)
+
+        # Get the current price
+        ticker = client.futures_symbol_ticker(symbol=symbol)
+        last_price = float(ticker['price'])
+
+        # Get LOT_SIZE and NOTIONAL filters
+        min_qty, max_qty, step_size = get_lot_size(symbol)
+        min_notional = get_notional_min(symbol)
+
+        # Calculate quantity and adjust to the nearest step size
+        raw_quantity = usdt_amount / last_price
+
+        # **Fixed this line to properly adjust quantity**
+        quantity = raw_quantity - (raw_quantity %
+                                   step_size)  # Truncate to step size
+
+        # Format quantity to the allowed precision (based on LOT_SIZE step size)
+        # Calculate the number of decimals
+        precision = len(str(step_size).split('.')[-1])
+        quantity = float(f"{quantity:.{precision}f}")  # Truncate to precision
+
+        # Calculate notional value
+        notional_value = float(quantity) * last_price
+
+        # Ensure quantity is within the allowed range
+        if float(quantity) < min_qty or float(quantity) > max_qty:
+            raise ValueError(
+                f"Quantity {quantity} is out of range: [{min_qty}, {max_qty}]"
+            )
+
+        # Ensure notional value meets the minimum
+        if notional_value < min_notional:
+            raise ValueError(
+                f"Notional value {notional_value} is below the minimum of {
+                    min_notional}."
+            )
+
+        # Place the order
+        order = client.futures_create_order(
+            symbol=symbol,
+            side=side,
+            type='MARKET',
+            quantity=quantity
+        )
+        current_quantity = quantity
+        logging.info(f"Order placed: {side} {quantity} of {
+                     symbol}. Order ID: {order['orderId']}")
+
+        # Send message to Telegram group
+        message = f"🚀 <b>New Order Placed</b> 🚀\n" \
+            f"📈 <b>Symbol:</b> {symbol}\n" \
+            f"🔁 <b>Action:</b> {side}\n" \
+            f"💵 <b>Quantity:</b> {quantity}\n" \
+            f"💰 <b>Price:</b> {last_price}\n" \
+
+
+        send_telegram_message(message)
+
+        return order
+
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception: {e}")
+        print(f"Error: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        print(f"Error: {e}")
+        return None
+
+
+def execute_trade(symbol, signal, usdt_amount=10):
+    """Execute a trade based on the signal."""
+    global current_position, current_quantity
+
+    # Determine quantity of BTC to trade (using the last market price)
+    try:
+        if signal == "BUY":
+            if current_position == "LONG":
+                logging.info(
+                    "Already in a BUY position, skipping new BUY signal.")
+                return False
+            else:
+                order = place_order(symbol, side="BUY",
+                                    usdt_amount=usdt_amount)
+                if order:
+                    current_position = "LONG"
+                return True
+
+        elif signal == "SELL":
+            if current_position == "SHORT":
+                logging.info(
+                    "Already in a SELL position, skipping new SELL signal.")
+                return False
+            else:
+                order = place_order(symbol, side="SELL",
+                                    usdt_amount=usdt_amount)
+                if order:
+                    current_position = "SHORT"
+                return True
+
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception: {e}")
+        print(f"Error: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        print(f"Error: {e}")
 
 
 def log_trade(position, action, price, pnl=None, timestamp=None):
@@ -685,10 +772,13 @@ def adjust_quantity(quantity, step_size):
     precision = len(str(step_size).split(
         '.')[-1])  # Determine the number of decimal places
     return round(quantity, precision)
+
+
 def calculate_atr(prices, window=14):
     """Calculate the Average True Range (ATR)."""
     tr = [abs(prices[i] - prices[i-1]) for i in range(1, len(prices))]
     return np.mean(tr[-window:])
+
 
 def calculate_sl_tp_with_atr(entry_price, direction='LONG', atr_value=0.01, multiplier=1.5):
     """
@@ -714,6 +804,7 @@ def calculate_sl_tp_with_atr(entry_price, direction='LONG', atr_value=0.01, mult
         raise ValueError("Invalid direction. Must be 'LONG' or 'SHORT'.")
 
     return {'TP': round(tp_price, 6), 'SL': round(sl_price, 6)}
+
 
 def calculate_sl_tp(entry_price, direction='LONG', tp_percentage=0.02, sl_percentage=0.01):
     """
@@ -742,37 +833,34 @@ def calculate_sl_tp(entry_price, direction='LONG', tp_percentage=0.02, sl_percen
         'SL': round(sl_price, 2)
     }
 
+
 # Run the bot
 if __name__ == "__main__":
     # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol=symbol, interval=interval, limit=limit)
     # scalping_bot(symbol,interval,usdt_amount)
-    usdt_amount = 2000
+    usdt_amount = 14
     direction = 'LONG'
     symbol = 'DOGEUSDT'
-    interval = '5m'
-    timeInterval = 15
-    limit = 300
+    interval = '1m'
+    timeInterval = 1
+    limit = 100
 
-    tp_percentage=0.02
-    sl_percentage=0.01
+    tp_percentage = 0.02
+    sl_percentage = 0.01
 
-    rsi_buy_threshold = 40
-    rsi_sell_threshold = 60
-    
+    rsi_buy_threshold = 45
+    rsi_sell_threshold = 55
 
-    # scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
-    #              sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
+    scalping_bot_periodically(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
+                 sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
 
     # order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
-    back_test_via_pnl(symbol=symbol,
-                      limit=limit,
-                      interval=interval,
-                      usdt_amount=usdt_amount,
-                      rsi_buy_threshold=rsi_buy_threshold,
-                      rsi_sell_threshold=rsi_sell_threshold,
-                      tp_percentage=tp_percentage,
-                      sl_percentage=sl_percentage)
-
-    
-
+    # back_test_via_pnl(symbol=symbol,
+    #                   limit=limit,
+    #                   interval=interval,
+    #                   usdt_amount=usdt_amount,
+    #                   rsi_buy_threshold=rsi_buy_threshold,
+    #                   rsi_sell_threshold=rsi_sell_threshold,
+    #                   tp_percentage=tp_percentage,
+    #                   sl_percentage=sl_percentage)
