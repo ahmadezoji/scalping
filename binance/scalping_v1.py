@@ -27,11 +27,16 @@ logging.basicConfig(
 )
 
 # Initialize Binance client
-API_KEY = 'OCfUCqdr9E3GeEzHy1zADhFTP4UHwh50nfJtS7m07EVOpFeVzMxsF6EnxUFQHrUK'
-API_SECRET = 'VtXuwNQNq5dOjJefjjKIrxwjdeIo8wRt0FRjgfASqJZvNPChSRrvFDaV12G2COwH'
-client = Client(API_KEY, API_SECRET)
-# client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
+API_KEY = '81vXiGyDU5cAgMH5PB5xHem9V9sGw6E1QaXGxyVMm79p0Gk8E7OYMf2OnSrMVWom'
+API_SECRET = 'gQWW6QW73sh9a83O4B5W6MzEmnXRxE55hsqM2Lvz1I27CtFog5EqBPI8moFIPICb'
 
+try:
+    client = Client(API_KEY, API_SECRET, testnet=False)
+    # client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
+    client.ping()
+    print("Ping successful!")
+except Exception as e:
+    print(f"Error during ping: {e}")
 
 # Function to calculate Simple Moving Average (SMA)
 def calculate_sma(data, window):
@@ -89,6 +94,21 @@ def calculate_rsi(prices, window=14):
 
     return rsi[-1]  # Return the latest RSI value
 
+def get_klines_with_start(symbol, interval, limit=100, start_time=None, end_time=None):
+    try:
+        klines = client.get_klines(
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+            startTime=start_time,
+            endTime=end_time
+        )
+
+        # Ensure klines contains the expected data structure (Closing price and timestamp)
+        return [(float(kline[4]), int(kline[0])) for kline in klines]
+    except Exception as e:
+        logging.error(f"Error fetching klines: {e}")
+        return []
 
 def get_klines(symbol, interval, limit=100):
     try:
@@ -193,7 +213,7 @@ def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=2
                 open_price = prices[-1]
                 if execute_trade(symbol, "BUY", usdt_amount):
                     sl_tp = calculate_sl_tp(
-                        open_price, 'LONG', interval, tp_percentage, sl_percentage
+                        open_price, 'LONG', tp_percentage, sl_percentage
                     )
                     open_trade_thread = threading.Thread(
                         target=check_sl_tp,
@@ -207,7 +227,7 @@ def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=2
                 open_price = prices[-1]
                 if execute_trade(symbol, "SELL", usdt_amount):
                     sl_tp = calculate_sl_tp(
-                        open_price, 'SHORT', interval, tp_percentage, sl_percentage)
+                        open_price, 'SHORT', tp_percentage, sl_percentage)
                     open_trade_thread = threading.Thread(
                         target=check_sl_tp,
                         args=('SHORT', symbol,
@@ -445,48 +465,6 @@ def execute_trade(symbol, signal, usdt_amount=10):
         logging.error(f"Unexpected error: {e}")
         print(f"Error: {e}")
 
-
-def back_test(symbol, interval='1m', limit=100):
-    """Backtest strategy using historical data."""
-    try:
-        # Fetch historical data
-        data = get_klines(symbol, interval, limit)
-        if not data or len(data) < 14:
-            logging.warning("Not enough data to perform backtest.")
-            return
-
-        prices = [item[0] for item in data]
-        timestamps = [item[1] for item in data]
-
-        # Calculate indicators
-        rsi = calculate_rsi(prices, 14)
-        sma_short = [calculate_sma(prices[max(0, i - 4):i + 1], 5)
-                     for i in range(len(prices))]
-        sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13)
-                    for i in range(len(prices))]
-
-        # Find signals
-        for i in range(14, len(prices)):
-            if sma_short[i] is None or sma_long[i] is None:
-                continue
-
-            signal = None
-            if sma_short[i] > sma_long[i] and rsi[i] < 40:
-                signal = "BUY"
-            elif sma_short[i] < sma_long[i] and rsi[i] > 60:
-                signal = "SELL"
-
-            if signal:
-                price = prices[i]
-                time_of_signal = datetime.fromtimestamp(timestamps[i] / 1000)
-                log_message = f"{
-                    time_of_signal} - Signal: {signal}, Price: {price:.2f}, RSI: {rsi[i]:.2f}"
-                logging.info(log_message)
-
-    except Exception as e:
-        logging.error(f"Unexpected error during backtest: {e}")
-
-
 def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
                       rsi_buy_threshold=40, rsi_sell_threshold=60,
                       tp_percentage=0.02, sl_percentage=0.01):
@@ -583,8 +561,12 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
 
                 current_position = "LONG"
                 open_price = current_price
-                sl_tp = calculate_sl_tp(
-                    open_price, 'LONG', interval, tp_percentage, sl_percentage)
+
+                atr_value = calculate_atr(prices, window=14)
+                sl_tp = calculate_sl_tp_with_atr(open_price, 'LONG', atr_value, multiplier=1.5)
+
+                # sl_tp = calculate_sl_tp(
+                #     open_price, 'LONG', tp_percentage, sl_percentage)
                 stop_loss_price = sl_tp['SL']
                 take_profit_price = sl_tp['TP']
                 log_trade('LONG', 'OPEN', current_price, 0.0, timestamps[i])
@@ -599,8 +581,10 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
 
                 current_position = "SHORT"
                 open_price = current_price
-                sl_tp = calculate_sl_tp(
-                    open_price, 'SHORT', interval, tp_percentage, sl_percentage)
+                atr_value = calculate_atr(prices, window=14)
+                sl_tp = calculate_sl_tp_with_atr(open_price, 'SHORT', atr_value, multiplier=1.5)
+                # sl_tp = calculate_sl_tp(
+                    # open_price, 'SHORT', tp_percentage, sl_percentage)
                 stop_loss_price = sl_tp['SL']
                 take_profit_price = sl_tp['TP']
                 log_trade('SHORT', 'OPEN', current_price, 0.0, timestamps[i])
@@ -701,70 +685,94 @@ def adjust_quantity(quantity, step_size):
     precision = len(str(step_size).split(
         '.')[-1])  # Determine the number of decimal places
     return round(quantity, precision)
+def calculate_atr(prices, window=14):
+    """Calculate the Average True Range (ATR)."""
+    tr = [abs(prices[i] - prices[i-1]) for i in range(1, len(prices))]
+    return np.mean(tr[-window:])
 
+def calculate_sl_tp_with_atr(entry_price, direction='LONG', atr_value=0.01, multiplier=1.5):
+    """
+    Calculate TP and SL dynamically using ATR.
+    Args:
+        entry_price (float): The entry price of the trade.
+        direction (str): 'LONG' or 'SHORT'.
+        atr_value (float): Average True Range value.
+        multiplier (float): Multiplier for ATR to calculate TP/SL.
 
-def calculate_sl_tp(entry_price, direction='LONG', interval='1h', tp_percentage=0.02, sl_percentage=0.01):
+    Returns:
+        dict: A dictionary containing TP and SL prices.
+    """
+    atr_target = atr_value * multiplier
 
-    # Set multiplier according to the interval
-    interval_multipliers = {
-        '1m': 1.0,
-        '5m': 0.02,
-        '15m': 0.9,
-        '30m': 1.0,
-        '1h': 1.0,
-        '2h': 1.2,
-        '4h': 1.5,
-        '12h': 1.75,
-        '1d': 2.0,
-        '1w': 3.0,
-    }
-
-    # Use the multiplier based on the interval, default to 1.0 if the interval is not in the list
-    multiplier = interval_multipliers.get(interval, 1.0)
-
-    # Calculate TP and SL
     if direction.upper() == 'LONG':
-        tp_price = entry_price * (1 + tp_percentage * multiplier)
-        sl_price = entry_price * (1 - sl_percentage * multiplier)
+        tp_price = entry_price + atr_target
+        sl_price = entry_price - atr_target
     elif direction.upper() == 'SHORT':
-        tp_price = entry_price * (1 - tp_percentage * multiplier)
-        sl_price = entry_price * (1 + sl_percentage * multiplier)
+        tp_price = entry_price - atr_target
+        sl_price = entry_price + atr_target
+    else:
+        raise ValueError("Invalid direction. Must be 'LONG' or 'SHORT'.")
+
+    return {'TP': round(tp_price, 6), 'SL': round(sl_price, 6)}
+
+def calculate_sl_tp(entry_price, direction='LONG', tp_percentage=0.02, sl_percentage=0.01):
+    """
+    Calculate TP and SL based on entry price and percentage values.
+
+    Args:
+        entry_price (float): The entry price of the trade.
+        direction (str): 'LONG' or 'SHORT'.
+        tp_percentage (float): Percentage for take profit (e.g., 0.02 for 2%).
+        sl_percentage (float): Percentage for stop loss (e.g., 0.01 for 1%).
+
+    Returns:
+        dict: A dictionary containing TP and SL prices.
+    """
+    if direction.upper() == 'LONG':
+        tp_price = entry_price * (1 + tp_percentage)
+        sl_price = entry_price * (1 - sl_percentage)
+    elif direction.upper() == 'SHORT':
+        tp_price = entry_price * (1 - tp_percentage)
+        sl_price = entry_price * (1 + sl_percentage)
     else:
         raise ValueError("Invalid direction. Must be 'LONG' or 'SHORT'.")
 
     return {
-        'TP': round(tp_price, 2),  # Round to 2 decimal places
-        'SL': round(sl_price, 2)   # Round to 2 decimal places
+        'TP': round(tp_price, 2),
+        'SL': round(sl_price, 2)
     }
-
 
 # Run the bot
 if __name__ == "__main__":
     # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol=symbol, interval=interval, limit=limit)
     # scalping_bot(symbol,interval,usdt_amount)
-    usdt_amount = 14
+    usdt_amount = 2000
     direction = 'LONG'
     symbol = 'DOGEUSDT'
     interval = '5m'
-    timeInterval = 5
+    timeInterval = 15
     limit = 300
 
-    tp_percentage = 0.02
-    sl_percentage = 0.01
-    rsi_buy_threshold = 45
-    rsi_sell_threshold = 55
+    tp_percentage=0.02
+    sl_percentage=0.01
 
-    scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
-                 sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
-    # order = place_order(symbol, side="BUY", usdt_amount=usdt_amount)
-    # back_test_via_pnl(symbol=symbol,
-    #                   limit=limit,
-    #                   interval=interval,
-    #                   usdt_amount=usdt_amount,
-    #                   rsi_buy_threshold=rsi_buy_threshold,
-    #                   rsi_sell_threshold=rsi_sell_threshold,
-    #                   tp_percentage=tp_percentage,
-    #                   sl_percentage=sl_percentage)
+    rsi_buy_threshold = 40
+    rsi_sell_threshold = 60
+    
 
-    # result = calculate_sl_tp(usdt_amount, direction, interval, tp_percentage, sl_percentage)
+    # scalping_bot(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
+    #              sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
+
+    # order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
+    back_test_via_pnl(symbol=symbol,
+                      limit=limit,
+                      interval=interval,
+                      usdt_amount=usdt_amount,
+                      rsi_buy_threshold=rsi_buy_threshold,
+                      rsi_sell_threshold=rsi_sell_threshold,
+                      tp_percentage=tp_percentage,
+                      sl_percentage=sl_percentage)
+
+    
+
