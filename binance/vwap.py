@@ -115,7 +115,7 @@ def backtest_vwap_scalping(data, atr_period=14, stochastic_period=14, rsi_period
 
 
 if __name__ == "__main__":
-    symbol = 'ETHUSDT'
+    symbol = 'DOGEUSDT'
     interval = '1m'
     _interval = 1
     day = 24

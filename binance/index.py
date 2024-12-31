@@ -238,3 +238,22 @@ def adjust_quantity(quantity, step_size):
     precision = len(str(step_size).split(
         '.')[-1])  # Determine the number of decimal places
     return round(quantity, precision)
+
+
+import logging
+
+def get_account_balance(asset):
+    try:
+        # Fetch account information
+        account_info = client.get_account()
+        
+        for balance in account_info['balances']:
+            if balance['asset'] == 'USDT':
+                print(f"Free: {balance['free']}, Locked: {balance['locked']}")
+        
+        # If the asset is not found, log a warning and return 0
+        logging.warning(f"Asset {asset} not found in account balances.")
+        return 0.0
+    except Exception as e:
+        logging.error(f"Error fetching account balance for {asset}: {e}")
+        return 0.0
