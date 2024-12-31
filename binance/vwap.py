@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from binance.client import Client
-from index import get_klines_all
+from index import *
 import logging
 import json
 from datetime import datetime, timedelta

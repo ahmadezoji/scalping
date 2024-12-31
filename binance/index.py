@@ -2,6 +2,8 @@ from binance.client import Client
 from binance.exceptions import BinanceAPIException
 import logging
 import pandas as pd
+from telegram import send_telegram_message  
+
 
 logging.basicConfig(
     filename='scalping_bot.log',
@@ -74,49 +76,165 @@ def get_klines_all(symbol, interval, start_time=None, end_time=None, limit=100):
         return pd.DataFrame()  # Return an empty DataFrame in case of error
 
 
+def close_futures_position(symbol, position, quantity):
+    try:
+        if position == 'LONG':
+            order = client.futures_create_order(
+                symbol=symbol,
+                side="SELL",
+                type='MARKET',
+                quantity=quantity
+            )
+        elif position == 'SHORT':
+            order = client.futures_create_order(
+                symbol=symbol,
+                side="BUY",
+                type='MARKET',
+                quantity=quantity
+            )
 
-def check_sl_tp(position, symbol, tp_price, sl_price, open_price, usdt_amount):
-    """Thread function to check if SL or TP is hit."""
-    global current_position, open_trade_thread, current_quantity
-    while current_position:
-        try:
-            # Fetch the current price
-            klines = get_klines(symbol, '1m', limit=1)
+        print(f"Order Closed successfully: {order}")
+        # Send message to Telegram group
+        message = f"🚀 <b>Close Order</b> 🚀\n" \
+            f"📈 <b>Symbol:</b> {symbol}\n" \
+            f"🔁 <b>Action:</b> {position}\n" \
+            f"💵 <b>Quantity:</b> {quantity}\n"
 
-            prices = [kline[0] for kline in klines]
-            current_price = prices[-1]
-            # Calculate and log unrealized PnL
-            unrealized_pnl = calculate_unrealized_pnl(
-                position, open_price, current_price, usdt_amount)
-            logging.info(f"Unrealized PnL for position {position} on {symbol}: {unrealized_pnl} USDT")
+        send_telegram_message(message)
+        return order
 
-            if position == "LONG":
-                if current_price >= tp_price:  # Take Profit
-                    log_trade(position, 'CLOSE (TP)', current_price)
-                    close_futures_position(symbol, 'LONG', current_quantity)
-                    current_position = None
-                    break
-                elif current_price <= sl_price:  # Stop Loss
-                    log_trade(position, 'CLOSE (SL)', current_price)
-                    close_futures_position(symbol, 'LONG', current_quantity)
-                    current_position = None
-                    break
+    except Exception as e:
+        print(f"Error closing position: {e}")
+        return None
 
-            elif position == "SHORT":
-                if current_price <= tp_price:  # Take Profit
-                    log_trade(position, 'CLOSE (TP)', current_price)
-                    close_futures_position(symbol, 'SHORT', current_quantity)
-                    current_position = None
-                    break
-                elif current_price >= sl_price:  # Stop Loss
-                    log_trade(position, 'CLOSE (SL)', current_price)
-                    close_futures_position(symbol, 'SHORT', current_quantity)
-                    current_position = None
-                    break
+def place_order(symbol, side, usdt_amount):
+    """Place a buy or sell order on Binance Futures."""
+    global current_quantity
+    try:
+        # Fetch the latest price
+        ticker = client.futures_symbol_ticker(symbol=symbol)
+        last_price = float(ticker['price'])
 
-            time.sleep(10)  # Check every 10 seconds
+        # Fetch LOT_SIZE filter dynamically
+        min_qty, max_qty, step_size = get_lot_size(symbol)
+        logging.info(f"LOT_SIZE for {symbol} - Min Qty: {min_qty}, Max Qty: {max_qty}, Step Size: {step_size}")
 
-        except Exception as e:
-            logging.error(f"Error in SL/TP thread: {e}")
-            break
+        # Calculate quantity and adjust to the nearest step size
+        raw_quantity = usdt_amount / last_price
+        precision = len(str(step_size).split('.')[-1])  # Determine the number of decimal places for step_size
+        quantity = round(raw_quantity - (raw_quantity % step_size), precision)
 
+        # Ensure quantity is within the allowed range
+        if quantity < min_qty or quantity > max_qty:
+            raise ValueError(
+                f"Quantity {quantity} is out of range for {symbol}: Min {min_qty}, Max {max_qty}"
+            )
+
+        # Place the order
+        order = client.futures_create_order(
+            symbol=symbol,
+            side=side,
+            type='MARKET',
+            quantity=quantity
+        )
+        current_quantity = quantity
+        logging.info(f"Order placed: {side} {quantity} of {symbol}. Order ID: {order['orderId']}")
+
+        # Send message to Telegram group
+        message = (
+            f"🚀 <b>New Order Placed</b> 🚀\n"
+            f"📈 <b>Symbol:</b> {symbol}\n"
+            f"🔁 <b>Action:</b> {side}\n"
+            f"💵 <b>Quantity:</b> {quantity}\n"
+            f"💰 <b>Price:</b> {last_price}\n"
+        )
+        send_telegram_message(message)
+
+        return order
+
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception: {e}")
+        print(f"Error: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        print(f"Error: {e}")
+        return None
+
+def set_leverage(symbol, leverage=1):
+    """
+    Set leverage for the given symbol.
+
+    Args:
+        symbol (str): Trading pair, e.g., 'BTCUSDT'.
+        leverage (int): The leverage to be set. Default is 1x.
+    """
+    try:
+        response = client.futures_change_leverage(
+            symbol=symbol,
+            leverage=leverage
+        )
+        logging.info(f"Leverage set to {leverage}x for {
+                     symbol}. Response: {response}")
+        return response
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception while setting leverage: {e}")
+        print(f"Error setting leverage: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error while setting leverage: {e}")
+        print(f"Unexpected error: {e}")
+        return None
+
+
+def set_margin_mode(symbol, margin_type="ISOLATED"):
+    """
+    Set margin mode for the given symbol.
+
+    Args:
+        symbol (str): Trading pair, e.g., 'BTCUSDT'.
+        margin_type (str): Margin mode to set ('ISOLATED' or 'CROSSED'). Default is 'ISOLATED'.
+    """
+    try:
+        response = client.futures_change_margin_type(
+            symbol=symbol,
+            marginType=margin_type
+        )
+        logging.info(f"Margin mode set to {margin_type} for {
+                     symbol}. Response: {response}")
+        return response
+    except BinanceAPIException as e:
+        if "No need to change margin type." in str(e):
+            logging.info(f"Margin type for {
+                         symbol} is already set to {margin_type}.")
+            print(f"Margin type for {symbol} is already set to {margin_type}.")
+        else:
+            logging.error(
+                f"Binance API Exception while setting margin mode: {e}")
+            print(f"Error setting margin mode: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error while setting margin mode: {e}")
+        print(f"Unexpected error: {e}")
+        return None
+
+
+def get_lot_size(symbol):
+    """Fetch LOT_SIZE filter for the given symbol."""
+    exchange_info = client.get_exchange_info()
+    for symbol_info in exchange_info['symbols']:
+        if symbol_info['symbol'] == symbol:
+            for filter_info in symbol_info['filters']:
+                if filter_info['filterType'] == 'LOT_SIZE':
+                    return (
+                        float(filter_info['minQty']),
+                        float(filter_info['maxQty']),
+                        float(filter_info['stepSize'])
+                    )
+    raise Exception(f"LOT_SIZE not found for symbol {symbol}")
+
+def adjust_quantity(quantity, step_size):
+    """Adjust quantity to the nearest step size and format to the allowed precision."""
+    precision = len(str(step_size).split(
+        '.')[-1])  # Determine the number of decimal places
+    return round(quantity, precision)

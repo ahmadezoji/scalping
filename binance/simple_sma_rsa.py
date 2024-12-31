@@ -7,18 +7,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from decimal import Decimal
 import threading
-import requests  # Import requests to send HTTP requests to Telegram
 
-# Add your Telegram Bot Token and Chat ID here
-TELEGRAM_BOT_TOKEN = '8116738142:AAHAR84spukz3PJVPM6tk5jv94WkDeOJO_U'
-TELEGRAM_CHAT_ID = '928383272'
 
-# Set up logging
-logging.basicConfig(
-    filename='scalping_bot.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s'
-)
+
+# # Set up logging
+# logging.basicConfig(
+#     filename='scalping_bot.log',
+#     level=logging.INFO,
+#     format='%(asctime)s - %(message)s'
+# )
 
 logging.basicConfig(
     level=logging.INFO,  # Set level to INFO to display info logs
@@ -387,173 +384,11 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
         print(f"Error fetching or plotting klines: {e}")
 
 
-def close_futures_position(symbol, position, quantity):
-    try:
-        if position == 'LONG':
-            order = client.futures_create_order(
-                symbol=symbol,
-                side="SELL",
-                type='MARKET',
-                quantity=quantity
-            )
-        elif position == 'SHORT':
-            order = client.futures_create_order(
-                symbol=symbol,
-                side="BUY",
-                type='MARKET',
-                quantity=quantity
-            )
-
-        print(f"Order Closed successfully: {order}")
-        # Send message to Telegram group
-        message = f"🚀 <b>Close Order</b> 🚀\n" \
-            f"📈 <b>Symbol:</b> {symbol}\n" \
-            f"🔁 <b>Action:</b> {position}\n" \
-            f"💵 <b>Quantity:</b> {quantity}\n"
-
-        send_telegram_message(message)
-        return order
-
-    except Exception as e:
-        print(f"Error closing position: {e}")
-        return None
 
 
-def set_leverage(symbol, leverage=1):
-    """
-    Set leverage for the given symbol.
-
-    Args:
-        symbol (str): Trading pair, e.g., 'BTCUSDT'.
-        leverage (int): The leverage to be set. Default is 1x.
-    """
-    try:
-        response = client.futures_change_leverage(
-            symbol=symbol,
-            leverage=leverage
-        )
-        logging.info(f"Leverage set to {leverage}x for {
-                     symbol}. Response: {response}")
-        return response
-    except BinanceAPIException as e:
-        logging.error(f"Binance API Exception while setting leverage: {e}")
-        print(f"Error setting leverage: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error while setting leverage: {e}")
-        print(f"Unexpected error: {e}")
-        return None
 
 
-def set_margin_mode(symbol, margin_type="ISOLATED"):
-    """
-    Set margin mode for the given symbol.
 
-    Args:
-        symbol (str): Trading pair, e.g., 'BTCUSDT'.
-        margin_type (str): Margin mode to set ('ISOLATED' or 'CROSSED'). Default is 'ISOLATED'.
-    """
-    try:
-        response = client.futures_change_margin_type(
-            symbol=symbol,
-            marginType=margin_type
-        )
-        logging.info(f"Margin mode set to {margin_type} for {
-                     symbol}. Response: {response}")
-        return response
-    except BinanceAPIException as e:
-        if "No need to change margin type." in str(e):
-            logging.info(f"Margin type for {
-                         symbol} is already set to {margin_type}.")
-            print(f"Margin type for {symbol} is already set to {margin_type}.")
-        else:
-            logging.error(
-                f"Binance API Exception while setting margin mode: {e}")
-            print(f"Error setting margin mode: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error while setting margin mode: {e}")
-        print(f"Unexpected error: {e}")
-        return None
-
-
-def send_telegram_message(message):
-    """
-    Send a message to the Telegram group using the Telegram Bot API.
-    Args:
-        message (str): The message content to send.
-    """
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            'chat_id': TELEGRAM_CHAT_ID,
-            'text': message,
-            'parse_mode': 'HTML'
-        }
-        response = requests.post(url, json=payload)
-        if response.status_code == 200:
-            logging.info("Message sent to Telegram successfully.")
-        else:
-            logging.error(f"Failed to send message to Telegram. Response: {
-                          response.json()}")
-    except Exception as e:
-        logging.error(f"Unexpected error while sending Telegram message: {e}")
-        print(f"Error sending Telegram message: {e}")
-
-
-def place_order(symbol, side, usdt_amount):
-    """Place a buy or sell order on Binance Futures."""
-    global current_quantity
-    try:
-        # Fetch the latest price
-        ticker = client.futures_symbol_ticker(symbol=symbol)
-        last_price = float(ticker['price'])
-
-        # Fetch LOT_SIZE filter dynamically
-        min_qty, max_qty, step_size = get_lot_size(symbol)
-        logging.info(f"LOT_SIZE for {symbol} - Min Qty: {min_qty}, Max Qty: {max_qty}, Step Size: {step_size}")
-
-        # Calculate quantity and adjust to the nearest step size
-        raw_quantity = usdt_amount / last_price
-        precision = len(str(step_size).split('.')[-1])  # Determine the number of decimal places for step_size
-        quantity = round(raw_quantity - (raw_quantity % step_size), precision)
-
-        # Ensure quantity is within the allowed range
-        if quantity < min_qty or quantity > max_qty:
-            raise ValueError(
-                f"Quantity {quantity} is out of range for {symbol}: Min {min_qty}, Max {max_qty}"
-            )
-
-        # Place the order
-        order = client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type='MARKET',
-            quantity=quantity
-        )
-        current_quantity = quantity
-        logging.info(f"Order placed: {side} {quantity} of {symbol}. Order ID: {order['orderId']}")
-
-        # Send message to Telegram group
-        message = (
-            f"🚀 <b>New Order Placed</b> 🚀\n"
-            f"📈 <b>Symbol:</b> {symbol}\n"
-            f"🔁 <b>Action:</b> {side}\n"
-            f"💵 <b>Quantity:</b> {quantity}\n"
-            f"💰 <b>Price:</b> {last_price}\n"
-        )
-        send_telegram_message(message)
-
-        return order
-
-    except BinanceAPIException as e:
-        logging.error(f"Binance API Exception: {e}")
-        print(f"Error: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        print(f"Error: {e}")
-        return None
 
 
 def execute_trade(symbol, signal, usdt_amount=10):
