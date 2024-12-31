@@ -77,8 +77,8 @@ async def vwap_strategy(data):
     return {'signal': signal}
 
 def calculate_quantity():
-    balance = get_account_balance('USDT')
-    quantity = balance 
+    return get_account_balance('USDT')
+
 async def trade_logic():
     """Main loop for fetching kline data and executing the VWAP strategy."""
     global current_position, entry_price, entry_quantity
