@@ -84,7 +84,7 @@ async def trade_logic():
     global current_position, entry_price, entry_quantity
     symbol = 'DOGEUSDT'
     interval = '1m'
-    quantity = 1  # Example quantity for trading
+    quantity = 0.0
     
     while True:
         try:
