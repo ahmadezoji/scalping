@@ -3,6 +3,8 @@ import numpy as np
 from binance.client import Client
 from index import get_klines_all
 import logging
+import json
+from datetime import datetime, timedelta
 
 logging.basicConfig(
     filename='scalping_bot.log',
@@ -120,8 +122,53 @@ if __name__ == "__main__":
     limit = int((day * 60) / _interval)  # steps calculated with minutes in a day
 
 
-    historical_data = get_klines_all(symbol, interval, limit)
+    # # historical_data = get_klines_all(symbol, interval, limit)
+    # start_time = '2023-12-21 00:00:00'  # Specify start datetime
+    # end_time = '2023-12-23 00:00:00'    # Specify end datetime
 
-    result = backtest_vwap_scalping(historical_data, capital=2000, lot_size=1)
-    print("Final Results:")
-    print(result)
+    # historical_data = get_klines_all(symbol, interval, start_time=start_time, end_time=end_time, limit=500)
+
+
+    # result = backtest_vwap_scalping(historical_data, capital=2000, lot_size=1)
+    # print("Final Results:")
+    # print(result)
+
+    # Run the backtest day by day for the last month
+    end_date = datetime.now() 
+    start_date = end_date - timedelta(days=30)
+    current_date = start_date
+
+    results = {}
+
+    while current_date < end_date:
+        next_date = current_date + timedelta(days=1)
+        historical_data = get_klines_all(
+            symbol=symbol,
+            interval=interval,
+            start_time=current_date.strftime('%Y-%m-%d %H:%M:%S'),
+            end_time=next_date.strftime('%Y-%m-%d %H:%M:%S'),
+            limit= limit
+        )
+
+        result = backtest_vwap_scalping(historical_data, capital=100, lot_size=1)
+        results[current_date.strftime('%Y-%m-%d')] = result
+        current_date = next_date
+    
+
+    print(json.dumps(results, indent=4))
+
+    # Calculate the win rate from the results.
+    win_count = 0
+    total_trades = 0
+
+    for day, result in results.items():
+        if result["realized_pnl"] > 0:  # Count as a win if realized PnL is positive
+            win_count += 1
+        total_trades += result["total_trades"]
+
+    win_rate = (win_count / len(results)) * 100  # Percentage of winning days
+    average_trades_per_day = total_trades / len(results) if len(results) > 0 else 0
+
+    # Displaying win rate and average trades per day
+    win_rate, average_trades_per_day
+    print(f"win rate : {win_rate} % and avg trade : {average_trades_per_day} ")

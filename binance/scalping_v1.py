@@ -13,12 +13,12 @@ import requests  # Import requests to send HTTP requests to Telegram
 TELEGRAM_BOT_TOKEN = '8116738142:AAHAR84spukz3PJVPM6tk5jv94WkDeOJO_U'
 TELEGRAM_CHAT_ID = '928383272'
 
-# # Set up logging
-# logging.basicConfig(
-#     filename='scalping_bot.log',
-#     level=logging.INFO,
-#     format='%(asctime)s - %(message)s'
-# )
+# Set up logging
+logging.basicConfig(
+    filename='scalping_bot.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s'
+)
 
 logging.basicConfig(
     level=logging.INFO,  # Set level to INFO to display info logs
@@ -141,8 +141,7 @@ def check_sl_tp(position, symbol, tp_price, sl_price, open_price, usdt_amount):
             # Calculate and log unrealized PnL
             unrealized_pnl = calculate_unrealized_pnl(
                 position, open_price, current_price, usdt_amount)
-            logging.info(f"Unrealized PnL for position {position} on {
-                         symbol}: {unrealized_pnl} USDT")
+            logging.info(f"Unrealized PnL for position {position} on {symbol}: {unrealized_pnl} USDT")
 
             if position == "LONG":
                 if current_price >= tp_price:  # Take Profit
@@ -175,78 +174,6 @@ def check_sl_tp(position, symbol, tp_price, sl_price, open_price, usdt_amount):
             break
 
 
-def scalping_bot(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=200, tp_percentage=0.02, sl_percentage=0.01, rsi_buy_threshold=40, rsi_sell_threshold=60,):
-    """Scalping bot using RSI and SMA strategy with real orders."""
-    global current_position, current_quantity, open_trade_thread
-    current_position = None  # None, 'LONG', or 'SHORT'
-    current_quantity = 0.0
-    open_price = None
-
-    while True:
-        try:
-            # Fetch data
-            klines = get_klines(symbol, interval, limit=limit)
-            if len(klines) < 14:
-                logging.warning("Not enough data to calculate indicators.")
-                time.sleep(60)
-                continue
-
-            prices = [kline[0] for kline in klines]  # Extract close prices
-            timestamps = [datetime.fromtimestamp(
-                kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
-
-            # Calculate indicators
-            if len(prices) >= 14:
-                rsi = calculate_rsi(prices, 14)
-                sma_short = calculate_sma(prices, 5)
-                sma_long = calculate_sma(prices, 13)
-
-                logging.info(f"{timestamps[-1]} - RSI: {rsi:.2f}, SMA Short (5): {
-                             sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
-
-                # Generate trading signal
-                signal = None
-                if sma_short > sma_long and rsi < rsi_buy_threshold:
-                    signal = "BUY"
-                elif sma_short < sma_long and rsi > rsi_sell_threshold:
-                    signal = "SELL"
-
-            # Process the signal
-            if signal == "BUY" and current_position != "LONG":
-                open_price = prices[-1]
-                if execute_trade(symbol, "BUY", usdt_amount):
-                    sl_tp = calculate_sl_tp(
-                        open_price, 'LONG', tp_percentage, sl_percentage
-                    )
-                    open_trade_thread = threading.Thread(
-                        target=check_sl_tp,
-                        args=('LONG', symbol, sl_tp['TP'],
-                              sl_tp['SL'], open_price, usdt_amount)
-                    )
-                    open_trade_thread.start()
-                    log_trade('LONG', 'OPEN', open_price, 0.0, timestamps[-1])
-
-            elif signal == "SELL" and current_position != "SHORT":
-                open_price = prices[-1]
-                if execute_trade(symbol, "SELL", usdt_amount):
-                    sl_tp = calculate_sl_tp(
-                        open_price, 'SHORT', tp_percentage, sl_percentage)
-                    open_trade_thread = threading.Thread(
-                        target=check_sl_tp,
-                        args=('SHORT', symbol,
-                              sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
-                    )
-                    open_trade_thread.start()
-                    log_trade('SHORT', 'OPEN', open_price, 0.0, timestamps[-1])
-
-            time.sleep(timeInterval*60)
-
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
-            print(f"Error: {e}")
-            time.sleep(60)
-
-
 def scalping_bot_periodically(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=200, tp_percentage=0.02, sl_percentage=0.01, rsi_buy_threshold=40, rsi_sell_threshold=60,):
     """Scalping bot using RSI and SMA strategy with real orders."""
     global current_position, current_quantity, open_trade_thread
@@ -273,43 +200,45 @@ def scalping_bot_periodically(symbol, interval='1m', timeInterval=1, limit=500, 
                 sma_short = calculate_sma(prices, 5)
                 sma_long = calculate_sma(prices, 13)
 
-                logging.info(f"{timestamps[-1]} - RSI: {rsi:.2f}, SMA Short (5): {
-                             sma_short:.2f}, SMA Long (13): {sma_long:.2f}")
+                logging.info(f"{timestamps[-1]} - RSI: {rsi:.5f}, SMA Short (5): {
+                             sma_short:.5f}, SMA Long (13): {sma_long:.5f}")
 
                 # Generate trading signal
                 signal = None
-                if sma_short > sma_long and rsi < rsi_buy_threshold:
+                if (sma_short - sma_long) > 1e-6 and rsi < rsi_buy_threshold:
                     signal = "BUY"
-                elif sma_short < sma_long and rsi > rsi_sell_threshold:
+                elif (sma_long - sma_short) > 1e-6 and rsi > rsi_sell_threshold:
                     signal = "SELL"
 
             # Process the signal
             if signal == "BUY" and current_position != "LONG":
                 if execute_trade(symbol, "BUY", usdt_amount):
+                    open_price = prices[-1]
                     atr_value = calculate_atr(prices, window=14)
                     sl_tp = calculate_sl_tp_with_atr(
                         prices[-1], 'LONG', atr_value, multiplier=1.5)
-                    open_trade_thread = threading.Thread(
-                        target=check_sl_tp,
-                        args=('LONG', symbol, sl_tp['TP'],
-                              sl_tp['SL'], open_price, usdt_amount)
-                    )
-                    open_trade_thread.start()
-                    open_price = prices[-1]
+                    # open_trade_thread = threading.Thread(
+                    #     target=check_sl_tp,
+                    #     args=('LONG', symbol, sl_tp['TP'],
+                    #           sl_tp['SL'], open_price, usdt_amount)
+                    # )
+                    # open_trade_thread.start()
+                  
                     log_trade('LONG', 'OPEN', open_price, 0.0, timestamps[-1])
 
             elif signal == "SELL" and current_position != "SHORT":
                 if execute_trade(symbol, "SELL", usdt_amount):
+                    open_price = prices[-1]
                     atr_value = calculate_atr(prices, window=14)
                     sl_tp = calculate_sl_tp_with_atr(
                         prices[-1], 'LONG', atr_value, multiplier=1.5)
-                    open_trade_thread = threading.Thread(
-                        target=check_sl_tp,
-                        args=('SHORT', symbol,
-                              sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
-                    )
-                    open_trade_thread.start()
-                    open_price = prices[-1]
+                    # open_trade_thread = threading.Thread(
+                    #     target=check_sl_tp,
+                    #     args=('SHORT', symbol,
+                    #           sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
+                    # )
+                    # open_trade_thread.start()
+                    
                     log_trade('SHORT', 'OPEN', open_price, 0.0, timestamps[-1])
 
             time.sleep(timeInterval*60)
@@ -453,7 +382,7 @@ def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
                 log_unrealized_pnl(
                     current_position, unrealized_pnl, timestamps[i])
 
-        logging.info(f"Backtest Complete. Total PnL: {total_pnl:.2f}")
+        logging.info(f"Backtest Complete. Total PnL: {total_pnl:.5f}")
     except Exception as e:
         print(f"Error fetching or plotting klines: {e}")
 
@@ -576,45 +505,23 @@ def place_order(symbol, side, usdt_amount):
     """Place a buy or sell order on Binance Futures."""
     global current_quantity
     try:
-
-        # **Set the leverage to 1x and the margin mode to ISOLATED**
-        # set_margin_mode(symbol, margin_type="ISOLATED")
-        # set_leverage(symbol, leverage=1)
-
-        # Get the current price
+        # Fetch the latest price
         ticker = client.futures_symbol_ticker(symbol=symbol)
         last_price = float(ticker['price'])
 
-        # Get LOT_SIZE and NOTIONAL filters
+        # Fetch LOT_SIZE filter dynamically
         min_qty, max_qty, step_size = get_lot_size(symbol)
-        min_notional = get_notional_min(symbol)
+        logging.info(f"LOT_SIZE for {symbol} - Min Qty: {min_qty}, Max Qty: {max_qty}, Step Size: {step_size}")
 
         # Calculate quantity and adjust to the nearest step size
         raw_quantity = usdt_amount / last_price
-
-        # **Fixed this line to properly adjust quantity**
-        quantity = raw_quantity - (raw_quantity %
-                                   step_size)  # Truncate to step size
-
-        # Format quantity to the allowed precision (based on LOT_SIZE step size)
-        # Calculate the number of decimals
-        precision = len(str(step_size).split('.')[-1])
-        quantity = float(f"{quantity:.{precision}f}")  # Truncate to precision
-
-        # Calculate notional value
-        notional_value = float(quantity) * last_price
+        precision = len(str(step_size).split('.')[-1])  # Determine the number of decimal places for step_size
+        quantity = round(raw_quantity - (raw_quantity % step_size), precision)
 
         # Ensure quantity is within the allowed range
-        if float(quantity) < min_qty or float(quantity) > max_qty:
+        if quantity < min_qty or quantity > max_qty:
             raise ValueError(
-                f"Quantity {quantity} is out of range: [{min_qty}, {max_qty}]"
-            )
-
-        # Ensure notional value meets the minimum
-        if notional_value < min_notional:
-            raise ValueError(
-                f"Notional value {notional_value} is below the minimum of {
-                    min_notional}."
+                f"Quantity {quantity} is out of range for {symbol}: Min {min_qty}, Max {max_qty}"
             )
 
         # Place the order
@@ -625,17 +532,16 @@ def place_order(symbol, side, usdt_amount):
             quantity=quantity
         )
         current_quantity = quantity
-        logging.info(f"Order placed: {side} {quantity} of {
-                     symbol}. Order ID: {order['orderId']}")
+        logging.info(f"Order placed: {side} {quantity} of {symbol}. Order ID: {order['orderId']}")
 
         # Send message to Telegram group
-        message = f"🚀 <b>New Order Placed</b> 🚀\n" \
-            f"📈 <b>Symbol:</b> {symbol}\n" \
-            f"🔁 <b>Action:</b> {side}\n" \
-            f"💵 <b>Quantity:</b> {quantity}\n" \
-            f"💰 <b>Price:</b> {last_price}\n" \
-
-
+        message = (
+            f"🚀 <b>New Order Placed</b> 🚀\n"
+            f"📈 <b>Symbol:</b> {symbol}\n"
+            f"🔁 <b>Action:</b> {side}\n"
+            f"💵 <b>Quantity:</b> {quantity}\n"
+            f"💰 <b>Price:</b> {last_price}\n"
+        )
         send_telegram_message(message)
 
         return order
@@ -692,8 +598,8 @@ def log_trade(position, action, price, pnl=None, timestamp=None):
     """Logs trade actions for opening and closing positions."""
     timestamp = timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    pnl_info = f", Realized PnL: {pnl:.2f}" if pnl is not None else ""
-    message = f"{timestamp} - {action} {position} at {price:.2f}{pnl_info}"
+    pnl_info = f", Realized PnL: {pnl:.5f}" if pnl is not None else ""
+    message = f"{timestamp} - {action} {position} at {price:.5f}{pnl_info}"
 
     logging.info(message)
 
@@ -702,7 +608,7 @@ def log_unrealized_pnl(position, unrealized_pnl, timestamp):
     """Logs the unrealized PnL for open positions."""
     if position in ['LONG', 'SHORT']:
         logging.info(
-            f"{timestamp} - {position} Unrealized PnL: {unrealized_pnl:.2f}")
+            f"{timestamp} - {position} Unrealized PnL: {unrealized_pnl:.5f}")
 
 
 def calculate_unrealized_pnl(current_position, open_price, current_price, usdt_amount):
@@ -839,7 +745,7 @@ if __name__ == "__main__":
     # back_test(symbol, interval, limit)
     # fetch_and_plot_klines(symbol=symbol, interval=interval, limit=limit)
     # scalping_bot(symbol,interval,usdt_amount)
-    usdt_amount = 14
+    usdt_amount = 12
     direction = 'LONG'
     symbol = 'DOGEUSDT'
     interval = '1m'
@@ -849,13 +755,13 @@ if __name__ == "__main__":
     tp_percentage = 0.02
     sl_percentage = 0.01
 
-    rsi_buy_threshold = 45
-    rsi_sell_threshold = 55
+    rsi_buy_threshold = 44
+    rsi_sell_threshold = 56
 
     scalping_bot_periodically(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
                  sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
 
-    # order = place_order(symbol, side="SELL", usdt_amount=usdt_amount)
+    # order = place_order(symbol, side="BUY", usdt_amount=usdt_amount)
     # back_test_via_pnl(symbol=symbol,
     #                   limit=limit,
     #                   interval=interval,
