@@ -257,3 +257,21 @@ def get_account_balance(asset):
     except Exception as e:
         logging.error(f"Error fetching account balance for {asset}: {e}")
         return 0.0
+
+def get_futures_account_balance(asset):
+    try:
+        # Fetch futures account balance
+        account_info = client.futures_account_balance()
+        
+        for balance in account_info:
+            if balance['asset'] == asset:
+                available_balance = float(balance['balance'])
+                print(f"Futures Balance - Free: {available_balance}")
+                return available_balance
+        
+        # If the asset is not found, log a warning and return 0
+        logging.warning(f"Asset {asset} not found in futures account balances.")
+        return 0.0
+    except Exception as e:
+        logging.error(f"Error fetching futures account balance for {asset}: {e}")
+        return 0.0

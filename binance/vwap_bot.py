@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from index import get_klines_all, place_order, close_futures_position,get_account_balance
+from index import *
 from telegram import send_telegram_message
 from datetime import datetime
 import pandas as pd
@@ -76,8 +76,7 @@ async def vwap_strategy(data):
         signal = 'SHORT'
     return {'signal': signal}
 
-def calculate_quantity():
-    return get_account_balance('USDT')
+
 
 async def trade_logic():
     """Main loop for fetching kline data and executing the VWAP strategy."""
@@ -102,31 +101,33 @@ async def trade_logic():
             # if current_position is None:
             if signal == 'LONG':
                 if current_position is None or current_position == 'SHORT':
-                    quantity = calculate_quantity()
+                    quantity = get_futures_account_balance('USDT')
                     if quantity is None or quantity < 10:
                         logging.warning("Available USDT balance is less than 10 USDT. Stopping the bot.")
                         send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
                         break
-                    logging.info("Placing LONG order.")
-                    order = place_order(symbol, 'BUY', quantity)
-                    if order:
-                        current_position = 'LONG'
-                        entry_price = float(order['fills'][0]['price'])
-                        entry_quantity = quantity
+                    elif quantity >= 10 and quantity < 20:
+                        logging.info("Placing LONG order.")
+                        order = place_order(symbol, 'BUY', quantity)
+                        if order:
+                            current_position = 'LONG'
+                            entry_price = float(order['fills'][0]['price'])
+                            entry_quantity = quantity
 
             elif signal == 'SHORT':
                 if current_position is None or current_position == 'LONG':
-                    quantity = calculate_quantity()
+                    quantity = get_futures_account_balance('USDT')
                     if quantity is None or quantity < 10:
                         logging.warning("Available USDT balance is less than 10 USDT. Stopping the bot.")
                         send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
                         break
-                    logging.info("Placing SHORT order.")
-                    order = place_order(symbol, 'SELL', quantity)
-                    if order:
-                        current_position = 'SHORT'
-                        entry_price = float(order['fills'][0]['price'])
-                        entry_quantity = quantity
+                    elif quantity >= 10 and quantity < 20:
+                        logging.info("Placing SHORT order.")
+                        order = place_order(symbol, 'SELL', quantity)
+                        if order:
+                            current_position = 'SHORT'
+                            entry_price = float(order['fills'][0]['price'])
+                            entry_quantity = quantity
 
         except Exception as e:
             logging.error(f"Error in trade logic: {e}")
