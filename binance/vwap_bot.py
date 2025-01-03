@@ -59,21 +59,17 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
 
 
 async def vwap_strategy(data):
-    """
-    Perform the VWAP trading strategy logic.
-    Args:
-        data (pd.DataFrame): Historical or live kline data.
-    Returns:
-        dict: Signal and necessary data for decision-making.
-    """
     data = calculate_vwap(data)
-    logging.info(f"RSI : {data['rsi'].iloc[-1]}")
+    logging.info(f"Signal Check: close={data['close'].iloc[-1]}, vwap={data['vwap'].iloc[-1]}, stoch_k={data['stoch_k'].iloc[-1]}, rsi={data['rsi'].iloc[-1]}, ema_trend={data['ema_trend'].iloc[-1]}")
 
     signal = None
-    if data['close'].iloc[-1] > data['vwap'].iloc[-1] and data['stoch_k'].iloc[-1] < 50 and data['rsi'].iloc[-1] > 45 and data['close'].iloc[-1] > data['ema_trend'].iloc[-1]:
+    vwap_tolerance = 0.01  # 1% tolerance
+    if data['close'].iloc[-1] > data['vwap'].iloc[-1] * (1 - vwap_tolerance) and data['stoch_k'].iloc[-1] < 70 and data['rsi'].iloc[-1] > 40 and data['close'].iloc[-1] > data['ema_trend'].iloc[-1]:
         signal = 'LONG'
-    elif data['close'].iloc[-1] < data['vwap'].iloc[-1] and data['stoch_k'].iloc[-1] > 50 and data['rsi'].iloc[-1] < 55 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
+    elif data['close'].iloc[-1] < data['vwap'].iloc[-1] * (1 + vwap_tolerance) and data['stoch_k'].iloc[-1] > 30 and data['rsi'].iloc[-1] < 60 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
         signal = 'SHORT'
+    
+    logging.info(f"Generated Signal: {signal}")
     return {'signal': signal}
 
 
