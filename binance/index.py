@@ -275,3 +275,40 @@ def get_futures_account_balance(asset):
     except Exception as e:
         logging.error(f"Error fetching futures account balance for {asset}: {e}")
         return 0.0
+
+
+import logging
+
+def close_all_positions():
+    """
+    Close all open futures positions.
+    """
+    try:
+        # Fetch all open positions
+        positions = client.futures_account()['positions']
+        for position in positions:
+            symbol = position['symbol']
+            position_amt = float(position['positionAmt'])  # Positive for LONG, Negative for SHORT
+
+            # Skip positions with zero quantity
+            if position_amt == 0:
+                continue
+
+            side = 'SELL' if position_amt > 0 else 'BUY'  # Close LONG with SELL, SHORT with BUY
+            quantity = abs(position_amt)  # Use absolute value for order quantity
+
+            # Place market order to close position
+            logging.info(f"Closing position for {symbol}: {side} {quantity}")
+            try:
+                order = client.futures_create_order(
+                    symbol=symbol,
+                    side=side,
+                    type='MARKET',
+                    quantity=quantity
+                )
+                logging.info(f"Closed position for {symbol}: {order}")
+            except Exception as e:
+                logging.error(f"Error closing position for {symbol}: {e}")
+
+    except Exception as e:
+        logging.error(f"Error fetching or closing positions: {e}")

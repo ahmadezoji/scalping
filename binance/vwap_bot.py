@@ -184,5 +184,5 @@ async def main():
 
 if __name__ == "__main__":
     # asyncio.run(main())
-    close_futures_position(SYMBOL, 'SHORT', 112.0)
+    close_all_positions()
    
