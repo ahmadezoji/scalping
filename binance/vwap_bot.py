@@ -18,6 +18,7 @@ logging.basicConfig(
 current_position = None
 entry_price = 0
 entry_quantity = 0
+SYMBOL='DOGEUSDT'
 
 def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
     """
@@ -76,7 +77,7 @@ async def vwap_strategy(data):
 
 async def trade_logic():
     global current_position, entry_price, entry_quantity
-    symbol = 'DOGEUSDT'
+    symbol = SYMBOL
     interval = '1m'
 
     while True:
@@ -94,50 +95,50 @@ async def trade_logic():
             logging.info(f"Signal Generated: {signal}")
             logging.info(f"Current Position: {current_position}")
 
-            if signal == 'LONG' and (current_position is None or current_position == 'SHORT'):
-                quantity = get_futures_account_balance('USDT')
-                logging.info(f"Available Quantity for Trading: {quantity}")
+            if signal and (current_position is None or current_position != signal):
+                # Fetch available balance
+                available_balance = get_futures_account_balance('USDT')
+                current_price = data['close'].iloc[-1]
 
-                if quantity is None or quantity < 10:
+                # Fetch leverage
+                leverage_info = client.futures_leverage_bracket(symbol=symbol)[0]
+                leverage = leverage_info['brackets'][0]['initialLeverage']
+
+                # Calculate required margin
+                required_margin = (available_balance * current_price) / leverage
+
+                if available_balance < 10:
                     logging.warning("Available USDT balance is less than 10 USDT. Stopping the bot.")
                     send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
                     break
-                elif quantity >= 10:
-                    logging.info("Placing LONG order.")
-                    order = place_order(symbol, 'BUY', quantity)
-                    logging.info(f"Order Response: {order}")
-                    if order:
-                        current_position = 'LONG'
-                        entry_price = float(order['fills'][0]['price'])
-                        entry_quantity = quantity
+                elif available_balance < required_margin:
+                    logging.warning(f"Insufficient margin. Required: {required_margin}, Available: {available_balance}")
+                    send_telegram_message("Insufficient margin for placing order.")
+                    continue
 
-            elif signal == 'SHORT' and (current_position is None or current_position == 'LONG'):
-                quantity = get_futures_account_balance('USDT')
-                logging.info(f"Available Quantity for Trading: {quantity}")
+                # Place order
+                order_side = 'BUY' if signal == 'LONG' else 'SELL'
+                order = place_order(symbol, order_side, available_balance)
+                logging.info(f"Order Response: {order}")
 
-                if quantity is None or quantity < 10:
-                    logging.warning("Available USDT balance is less than 10 USDT. Stopping the bot.")
-                    send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
-                    break
-                elif quantity >= 10:
-                    logging.info("Placing SHORT order.")
-                    order = place_order(symbol, 'SELL', quantity)
-                    logging.info(f"Order Response: {order}")
-                    if order:
-                        current_position = 'SHORT'
-                        entry_price = float(order['fills'][0]['price'])
-                        entry_quantity = quantity
+                if order and order.get('status') in ['FILLED', 'PARTIALLY_FILLED']:
+                    current_position = signal
+                    entry_price = float(order['fills'][0]['price'])
+                    entry_quantity = available_balance
+                else:
+                    logging.warning(f"Order not filled immediately: {order}")
 
         except Exception as e:
             logging.error(f"Error in trade logic: {e}")
 
         await asyncio.sleep(60)
 
+
 async def tp_sl_monitor():
     """Monitor positions for TP and SL conditions."""
     global current_position, entry_price, entry_quantity
-    symbol = 'ETHUSDT'
     interval = 10  # Check every 10 seconds
+    symbol=SYMBOL
     tp_percentage = 0.02  # Example TP threshold
     sl_percentage = 0.01  # Example SL threshold
 
@@ -182,5 +183,6 @@ async def main():
     )
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # asyncio.run(main())
+    close_futures_position(SYMBOL, 'SHORT', 112.0)
    
