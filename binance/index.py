@@ -5,12 +5,6 @@ import pandas as pd
 from telegram import send_telegram_message  
 
 
-logging.basicConfig(
-    filename='scalping_bot.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s'
-)
-
 
 API_KEY = '81vXiGyDU5cAgMH5PB5xHem9V9sGw6E1QaXGxyVMm79p0Gk8E7OYMf2OnSrMVWom'
 API_SECRET = 'gQWW6QW73sh9a83O4B5W6MzEmnXRxE55hsqM2Lvz1I27CtFog5EqBPI8moFIPICb'
