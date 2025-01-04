@@ -137,12 +137,11 @@ async def trade_logic():
 
 
 async def tp_sl_monitor():
-    """Monitor positions for TP and SL conditions."""
     global current_position, entry_price, entry_quantity
     interval = 10  # Check every 10 seconds
-    symbol=SYMBOL
-    tp_percentage = 0.02  # Example TP threshold
-    sl_percentage = 0.01  # Example SL threshold
+    symbol = SYMBOL
+    tp_percentage = 0.3  # Tight TP threshold (0.3%)
+    sl_percentage = 0.2  # Tight SL threshold (0.2%)
 
     while True:
         try:
@@ -155,23 +154,27 @@ async def tp_sl_monitor():
                     continue
 
                 latest_price = data['close'].iloc[-1]
-                if current_position == 'LONG':
-                    pnl = (latest_price - entry_price) * entry_quantity
-                    if pnl >= entry_price * tp_percentage or pnl <= -entry_price * sl_percentage:
-                        logging.info("Closing LONG position due to TP/SL.")
-                        close_futures_position(symbol, 'LONG', entry_quantity)
-                        current_position = None
-                elif current_position == 'SHORT':
-                    pnl = (entry_price - latest_price) * entry_quantity
-                    if pnl >= entry_price * tp_percentage or pnl <= -entry_price * sl_percentage:
-                        logging.info("Closing SHORT position due to TP/SL.")
-                        close_futures_position(symbol, 'SHORT', entry_quantity)
-                        current_position = None
+                pnl_percentage = ((latest_price - entry_price) / entry_price) * 100 if current_position == 'LONG' else ((entry_price - latest_price) / entry_price) * 100
+
+                logging.info(f"TP/SL Check - Latest Price: {latest_price}, Entry Price: {entry_price}, PnL Percentage: {pnl_percentage}, Position: {current_position}")
+
+                # Check for TP or SL
+                if current_position == 'LONG' and (pnl_percentage >= tp_percentage or pnl_percentage <= -sl_percentage):
+                    logging.info("Closing LONG position due to TP/SL.")
+                    close_response = close_futures_position(symbol, 'LONG', entry_quantity)
+                    logging.info(f"Close Response: {close_response}")
+                    current_position = None
+                elif current_position == 'SHORT' and (pnl_percentage >= tp_percentage or pnl_percentage <= -sl_percentage):
+                    logging.info("Closing SHORT position due to TP/SL.")
+                    close_response = close_futures_position(symbol, 'SHORT', entry_quantity)
+                    logging.info(f"Close Response: {close_response}")
+                    current_position = None
 
         except Exception as e:
             logging.error(f"Error in TP/SL monitor: {e}")
 
         await asyncio.sleep(interval)
+
 
 async def main():
     """Main entry point for the VWAP bot."""

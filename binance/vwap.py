@@ -2,15 +2,8 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 from index import *
-import logging
 import json
 from datetime import datetime, timedelta
-
-logging.basicConfig(
-    filename='scalping_bot.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s'
-)
 
 
 def backtest_vwap_scalping(data, atr_period=14, stochastic_period=14, rsi_period=14, capital=100, lot_size=0.01):
