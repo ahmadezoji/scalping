@@ -280,9 +280,6 @@ def get_futures_account_balance(asset):
 import logging
 
 def close_all_positions():
-    """
-    Close all open futures positions.
-    """
     try:
         # Fetch all open positions
         positions = client.futures_account()['positions']
