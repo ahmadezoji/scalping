@@ -68,9 +68,9 @@ async def vwap_strategy(data):
 
     signal = None
     vwap_tolerance = 0.005  # 0.5% tolerance (lower sensitivity)
-    if data['close'].iloc[-1] > data['vwap'].iloc[-1] * (1 - vwap_tolerance) and data['stoch_k'].iloc[-1] < 80 and data['rsi'].iloc[-1] > 35 and data['close'].iloc[-1] > data['ema_trend'].iloc[-1]:
+    if data['close'].iloc[-1] > data['vwap'].iloc[-1] * (1 - vwap_tolerance) and data['stoch_k'].iloc[-1] < 80 and data['rsi'].iloc[-1] > 40 and data['close'].iloc[-1] > data['ema_trend'].iloc[-1]:
         signal = 'LONG'
-    elif data['close'].iloc[-1] < data['vwap'].iloc[-1] * (1 + vwap_tolerance) and data['stoch_k'].iloc[-1] > 20 and data['rsi'].iloc[-1] < 65 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
+    elif data['close'].iloc[-1] < data['vwap'].iloc[-1] * (1 + vwap_tolerance) and data['stoch_k'].iloc[-1] > 20 and data['rsi'].iloc[-1] < 60 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
         signal = 'SHORT'
     
     logging.info(f"Generated Signal: {signal}")
@@ -147,6 +147,7 @@ async def tp_sl_monitor():
         try:
             if current_position is not None:
                 # Fetch the latest price
+                logging.info(f"current_position is opened in Tp/SL thread in {current_position}")
                 data = get_klines_all(symbol, '1m', limit=1)
                 if data.empty:
                     logging.warning("No data retrieved for TP/SL monitoring.")
