@@ -117,7 +117,7 @@ async def trade_logic():
                 quantity = min(available_balance, max_quantity)
                 log_and_print(f"Adjusted Quantity: {quantity}")
 
-                if available_balance < 10:
+                if available_balance < 30:
                     log_and_print("Available USDT balance is less than 10 USDT. Stopping the bot.")
                     send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
                     break
