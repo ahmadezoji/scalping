@@ -77,67 +77,6 @@ async def vwap_strategy(data):
     
     return {'signal': signal}
 
-async def trade_logic():
-    global current_position, entry_price, entry_quantity
-    symbol = SYMBOL
-    interval = '1m'
-
-    while True:
-        try:
-            # Fetch current kline data
-            data = get_klines_all(symbol, interval, limit=20)
-            if data.empty:
-                log_and_print("No data retrieved from Binance API.")
-                await asyncio.sleep(60)
-                continue
-
-            # Execute VWAP strategy
-            result = await vwap_strategy(data)
-            signal = result['signal']
-           
-
-            if signal and (current_position is None or current_position != signal):
-                log_and_print(f"Signal Generated: {signal}")
-                # Fetch available balance
-                available_balance = get_futures_account_balance('USDT')
-                current_price = data['close'].iloc[-1]
-
-                # Fetch leverage
-                leverage_info = client.futures_leverage_bracket(symbol=symbol)[0]
-                leverage = leverage_info['brackets'][0]['initialLeverage']
-
-                # Calculate required margin
-                required_margin = (available_balance * current_price) / leverage
-
-                if available_balance < 10:
-                    log_and_print("Available USDT balance is less than 10 USDT. Stopping the bot.")
-                    send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
-                    break
-                elif available_balance < required_margin:
-                    log_and_print(f"Insufficient margin. Required: {required_margin}, Available: {available_balance}")
-                    send_telegram_message("Insufficient margin for placing order.")
-                    continue
-
-                # Place order
-                order_side = 'BUY' if signal == 'LONG' else 'SELL'
-                order = place_order(symbol, order_side, available_balance)
-                log_and_print(f"Order Response: {order}")
-                if order:
-                    filled_order = wait_for_order_fill(order['orderId'], symbol)
-                    if filled_order:
-                        current_position = signal
-                        entry_price = float(filled_order['avgPrice'])
-                        entry_quantity = float(filled_order['executedQty'])
-                    else:
-                        log_and_print("Order was not filled within the timeout period.")
-
-        except Exception as e:
-            log_and_print(f"Error in trade logic: {e}")
-
-        await asyncio.sleep(60)
-
-
-
 def wait_for_order_fill(order_id, symbol, timeout=30):
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -147,17 +86,83 @@ def wait_for_order_fill(order_id, symbol, timeout=30):
         time.sleep(1)  # Wait 1 second before retrying
     return None
 
+async def trade_logic():
+    global current_position, entry_price, entry_quantity
+    symbol = SYMBOL
+    interval = '5m'  # Adjusted for 5-minute timeframe
+    interval_value = 5  # Adjusted sleep interval in minutes
+
+    while True:
+        try:
+            # Fetch current kline data
+            data = get_klines_all(symbol, interval, limit=20)
+            if data.empty:
+                log_and_print("No data retrieved from Binance API.")
+                await asyncio.sleep(interval_value * 60)
+                continue
+
+            # Execute VWAP strategy
+            result = await vwap_strategy(data)
+            signal = result['signal']
+
+            if signal and (current_position is None or current_position != signal):
+                log_and_print(f"Signal Generated: {signal}")
+                available_balance = get_futures_account_balance('USDT')
+                current_price = data['close'].iloc[-1]
+
+                leverage_info = client.futures_leverage_bracket(symbol=symbol)[0]
+                leverage = leverage_info['brackets'][0]['initialLeverage']
+
+                max_quantity = calculate_max_quantity(available_balance, leverage, current_price)
+                quantity = min(available_balance, max_quantity)
+                log_and_print(f"Adjusted Quantity: {quantity}")
+
+                if available_balance < 10:
+                    log_and_print("Available USDT balance is less than 10 USDT. Stopping the bot.")
+                    send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
+                    break
+
+                try:
+                    order_side = 'BUY' if signal == 'LONG' else 'SELL'
+                    order = place_order(symbol, order_side, quantity)
+                    log_and_print(f"Order Response: {order}")
+                    if order:
+                        filled_order = wait_for_order_fill(order['orderId'], symbol)
+                        if filled_order:
+                            current_position = signal
+                            entry_price = float(filled_order['avgPrice'])
+                            entry_quantity = float(filled_order['executedQty'])
+                        else:
+                            log_and_print("Order was not filled within the timeout period.")
+                except BinanceAPIException as e:
+                    if "Margin is insufficient" in str(e):
+                        log_and_print("Margin insufficient for placing order.")
+                        send_telegram_message("Margin insufficient for placing order.")
+                        continue
+                    else:
+                        raise
+
+        except Exception as e:
+            log_and_print(f"Error in trade logic: {e}")
+
+        await asyncio.sleep(interval_value * 60)
+
+def calculate_max_quantity(available_balance, leverage, current_price):
+    max_quantity = (available_balance * leverage) / current_price
+    return max_quantity
+
+
 async def tp_sl_monitor():
     global current_position, entry_price, entry_quantity
-    interval = 10  # Check every 10 seconds
+    interval = 30  # Adjusted to match 5-minute timeframe monitoring
     symbol = SYMBOL
-    tp_percentage = 0.2  # Take Profit: 0.2%
-    sl_percentage = 0.1  # Stop Loss: 0.1%
+    tp_percentage = 0.5  # Adjusted for longer timeframe
+    sl_percentage = 0.3  # Adjusted for longer timeframe
 
     while True:
         try:
             if current_position is not None:
-                data = get_klines_all(symbol, '1m', limit=1)
+                data = get_klines_all(symbol, '5m', limit=1)
                 if data.empty:
                     log_and_print("No data retrieved for TP/SL monitoring.")
                     await asyncio.sleep(interval)
@@ -169,16 +174,28 @@ async def tp_sl_monitor():
                 log_and_print(f"TP/SL Check - Latest Price: {latest_price}, Entry Price: {entry_price}, PnL Percentage: {pnl_percentage}, Position: {current_position}")
 
                 # Check for TP or SL
-                if current_position == 'LONG' and (pnl_percentage >= tp_percentage or pnl_percentage <= -sl_percentage):
-                    log_and_print("Closing LONG position due to TP/SL.")
-                    close_response = close_futures_position(symbol, 'LONG', entry_quantity)
-                    log_and_print(f"Close Response: {close_response}")
-                    current_position = None
-                elif current_position == 'SHORT' and (pnl_percentage >= tp_percentage or pnl_percentage <= -sl_percentage):
-                    log_and_print("Closing SHORT position due to TP/SL.")
-                    close_response = close_futures_position(symbol, 'SHORT', entry_quantity)
-                    log_and_print(f"Close Response: {close_response}")
-                    current_position = None
+                if current_position == 'LONG':
+                    if pnl_percentage >= tp_percentage:
+                        log_and_print("Closing LONG position due to Take Profit.")
+                        close_response = close_futures_position(symbol, 'LONG', entry_quantity)
+                        log_and_print(f"Close Response: {close_response}")
+                        current_position = None
+                    elif pnl_percentage <= -sl_percentage:
+                        log_and_print("Closing LONG position due to Stop Loss.")
+                        close_response = close_futures_position(symbol, 'LONG', entry_quantity)
+                        log_and_print(f"Close Response: {close_response}")
+                        current_position = None
+                elif current_position == 'SHORT':
+                    if pnl_percentage >= tp_percentage:
+                        log_and_print("Closing SHORT position due to Take Profit.")
+                        close_response = close_futures_position(symbol, 'SHORT', entry_quantity)
+                        log_and_print(f"Close Response: {close_response}")
+                        current_position = None
+                    elif pnl_percentage <= -sl_percentage:
+                        log_and_print("Closing SHORT position due to Stop Loss.")
+                        close_response = close_futures_position(symbol, 'SHORT', entry_quantity)
+                        log_and_print(f"Close Response: {close_response}")
+                        current_position = None
 
         except Exception as e:
             log_and_print(f"Error in TP/SL monitor: {e}")
