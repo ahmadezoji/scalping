@@ -5,6 +5,7 @@ from telegram import send_telegram_message
 from datetime import datetime
 import pandas as pd
 import numpy as np
+import time
 
 logging.basicConfig(
     filename='vwap_bot.log',
@@ -12,7 +13,9 @@ logging.basicConfig(
     format='%(asctime)s - %(message)s'
 )
 
-
+def log_and_print(message):
+    print(message)
+    logging.info(message)
 
 # Global variables to store active position details
 current_position = None
@@ -58,24 +61,21 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
 
     return data
 
-
 async def vwap_strategy(data):
     """
-    Perform the VWAP trading strategy logic with decreased sensitivity.
+    Perform the VWAP trading strategy logic with reduced sensitivity.
     """
     data = calculate_vwap(data)
-    logging.info(f"Signal Check: close={data['close'].iloc[-1]}, vwap={data['vwap'].iloc[-1]}, stoch_k={data['stoch_k'].iloc[-1]}, rsi={data['rsi'].iloc[-1]}, ema_trend={data['ema_trend'].iloc[-1]}")
+    log_and_print(f"Signal Check: close={data['close'].iloc[-1]}, vwap={data['vwap'].iloc[-1]}, stoch_k={data['stoch_k'].iloc[-1]}, rsi={data['rsi'].iloc[-1]}, ema_trend={data['ema_trend'].iloc[-1]}")
 
     signal = None
-    vwap_tolerance = 0.005  # 0.5% tolerance (lower sensitivity)
-    if data['close'].iloc[-1] > data['vwap'].iloc[-1] * (1 - vwap_tolerance) and data['stoch_k'].iloc[-1] < 80 and data['rsi'].iloc[-1] > 40 and data['close'].iloc[-1] > data['ema_trend'].iloc[-1]:
+    vwap_tolerance = 0.001  # 1% tolerance (reduced sensitivity)
+    if data['close'].iloc[-1] > data['vwap'].iloc[-1] * (1 - vwap_tolerance) and data['stoch_k'].iloc[-1] < 70 and data['rsi'].iloc[-1] > 50 and data['close'].iloc[-1] > data['ema_trend'].iloc[-1]:
         signal = 'LONG'
-    elif data['close'].iloc[-1] < data['vwap'].iloc[-1] * (1 + vwap_tolerance) and data['stoch_k'].iloc[-1] > 20 and data['rsi'].iloc[-1] < 60 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
+    elif data['close'].iloc[-1] < data['vwap'].iloc[-1] * (1 + vwap_tolerance) and data['stoch_k'].iloc[-1] > 30 and data['rsi'].iloc[-1] < 50 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
         signal = 'SHORT'
     
-    logging.info(f"Generated Signal: {signal}")
     return {'signal': signal}
-
 
 async def trade_logic():
     global current_position, entry_price, entry_quantity
@@ -87,17 +87,17 @@ async def trade_logic():
             # Fetch current kline data
             data = get_klines_all(symbol, interval, limit=20)
             if data.empty:
-                logging.warning("No data retrieved from Binance API.")
+                log_and_print("No data retrieved from Binance API.")
                 await asyncio.sleep(60)
                 continue
 
             # Execute VWAP strategy
             result = await vwap_strategy(data)
             signal = result['signal']
-            logging.info(f"Signal Generated: {signal}")
-            logging.info(f"Current Position: {current_position}")
+           
 
             if signal and (current_position is None or current_position != signal):
+                log_and_print(f"Signal Generated: {signal}")
                 # Fetch available balance
                 available_balance = get_futures_account_balance('USDT')
                 current_price = data['close'].iloc[-1]
@@ -110,76 +110,85 @@ async def trade_logic():
                 required_margin = (available_balance * current_price) / leverage
 
                 if available_balance < 10:
-                    logging.warning("Available USDT balance is less than 10 USDT. Stopping the bot.")
+                    log_and_print("Available USDT balance is less than 10 USDT. Stopping the bot.")
                     send_telegram_message("Your available USDT balance is less than 10 USDT. Stopping the bot.")
                     break
                 elif available_balance < required_margin:
-                    logging.warning(f"Insufficient margin. Required: {required_margin}, Available: {available_balance}")
+                    log_and_print(f"Insufficient margin. Required: {required_margin}, Available: {available_balance}")
                     send_telegram_message("Insufficient margin for placing order.")
                     continue
 
                 # Place order
                 order_side = 'BUY' if signal == 'LONG' else 'SELL'
                 order = place_order(symbol, order_side, available_balance)
-                logging.info(f"Order Response: {order}")
-
-                if order and order.get('status') in ['FILLED', 'PARTIALLY_FILLED']:
-                    current_position = signal
-                    entry_price = float(order['fills'][0]['price'])
-                    entry_quantity = available_balance
-                else:
-                    logging.warning(f"Order not filled immediately: {order}")
+                log_and_print(f"Order Response: {order}")
+                if order:
+                    filled_order = wait_for_order_fill(order['orderId'], symbol)
+                    if filled_order:
+                        current_position = signal
+                        entry_price = float(filled_order['avgPrice'])
+                        entry_quantity = float(filled_order['executedQty'])
+                    else:
+                        log_and_print("Order was not filled within the timeout period.")
 
         except Exception as e:
-            logging.error(f"Error in trade logic: {e}")
+            log_and_print(f"Error in trade logic: {e}")
 
         await asyncio.sleep(60)
 
+
+
+def wait_for_order_fill(order_id, symbol, timeout=30):
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        order_status = client.futures_get_order(symbol=symbol, orderId=order_id)
+        if order_status['status'] in ['FILLED', 'PARTIALLY_FILLED']:
+            return order_status
+        time.sleep(1)  # Wait 1 second before retrying
+    return None
 
 async def tp_sl_monitor():
     global current_position, entry_price, entry_quantity
     interval = 10  # Check every 10 seconds
     symbol = SYMBOL
-    tp_percentage = 0.3  # Tight TP threshold (0.3%)
-    sl_percentage = 0.2  # Tight SL threshold (0.2%)
+    tp_percentage = 0.2  # Take Profit: 0.2%
+    sl_percentage = 0.1  # Stop Loss: 0.1%
 
     while True:
         try:
             if current_position is not None:
-                # Fetch the latest price
-                logging.info(f"current_position is opened in Tp/SL thread in {current_position}")
                 data = get_klines_all(symbol, '1m', limit=1)
                 if data.empty:
-                    logging.warning("No data retrieved for TP/SL monitoring.")
+                    log_and_print("No data retrieved for TP/SL monitoring.")
                     await asyncio.sleep(interval)
                     continue
 
                 latest_price = data['close'].iloc[-1]
                 pnl_percentage = ((latest_price - entry_price) / entry_price) * 100 if current_position == 'LONG' else ((entry_price - latest_price) / entry_price) * 100
 
-                logging.info(f"TP/SL Check - Latest Price: {latest_price}, Entry Price: {entry_price}, PnL Percentage: {pnl_percentage}, Position: {current_position}")
+                log_and_print(f"TP/SL Check - Latest Price: {latest_price}, Entry Price: {entry_price}, PnL Percentage: {pnl_percentage}, Position: {current_position}")
 
                 # Check for TP or SL
                 if current_position == 'LONG' and (pnl_percentage >= tp_percentage or pnl_percentage <= -sl_percentage):
-                    logging.info("Closing LONG position due to TP/SL.")
+                    log_and_print("Closing LONG position due to TP/SL.")
                     close_response = close_futures_position(symbol, 'LONG', entry_quantity)
-                    logging.info(f"Close Response: {close_response}")
+                    log_and_print(f"Close Response: {close_response}")
                     current_position = None
                 elif current_position == 'SHORT' and (pnl_percentage >= tp_percentage or pnl_percentage <= -sl_percentage):
-                    logging.info("Closing SHORT position due to TP/SL.")
+                    log_and_print("Closing SHORT position due to TP/SL.")
                     close_response = close_futures_position(symbol, 'SHORT', entry_quantity)
-                    logging.info(f"Close Response: {close_response}")
+                    log_and_print(f"Close Response: {close_response}")
                     current_position = None
 
         except Exception as e:
-            logging.error(f"Error in TP/SL monitor: {e}")
+            log_and_print(f"Error in TP/SL monitor: {e}")
 
         await asyncio.sleep(interval)
 
 
 async def main():
     """Main entry point for the VWAP bot."""
-    logging.info("Starting VWAP bot.")
+    log_and_print("Starting VWAP bot.")
     send_telegram_message("VWAP bot started.")
 
     # Run the trade logic and TP/SL monitor concurrently
@@ -190,5 +199,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
-   

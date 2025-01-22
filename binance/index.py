@@ -1,9 +1,8 @@
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 import logging
-import pandas as pd
 from telegram import send_telegram_message  
-
+import pandas as pd
 
 
 API_KEY = '81vXiGyDU5cAgMH5PB5xHem9V9sGw6E1QaXGxyVMm79p0Gk8E7OYMf2OnSrMVWom'
