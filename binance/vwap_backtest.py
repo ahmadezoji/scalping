@@ -3,6 +3,7 @@ import numpy as np
 import logging
 from index import get_klines_all
 from datetime import datetime, timedelta
+from itertools import product
 
 logging.basicConfig(
     filename='vwap_backtest.log',
@@ -44,10 +45,10 @@ def backtest_vwap_strategy(symbol, start_date, end_date):
     position = None
     entry_price = 0
     entry_quantity = 0
-    capital = 35  # Initial capital in USDT
+    capital = 500  # Initial capital in USDT
     position_size = 0.2  # Risking 20% per trade
-    tp_percentage = 0.5  # Take Profit at 0.5%
-    sl_percentage = 0.3  # Stop Loss at 0.3%
+    tp_percentage = 0.30  # Take Profit at 0.5%
+    sl_percentage = 0.10  # Stop Loss at 0.3%
 
     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
     for date in date_range:
@@ -105,6 +106,23 @@ def backtest_vwap_strategy(symbol, start_date, end_date):
     
     log_and_print(f"Daily PnL Summary: {daily_pnl}")
     log_and_print(f"Total PnL over backtest period: {total_pnl:.2f} USDT")
+
+    
+def optimize_tp_sl(symbol, start_date, end_date):
+    """ Optimize TP and SL values to find the most profitable combination. """
+    best_pnl = float('-inf')
+    best_tp, best_sl = 0, 0
+    
+    tp_values = np.arange(0.3, 2.1, 0.1)  # 0.3% to 2% TP range
+    sl_values = np.arange(0.1, 1.1, 0.1)  # 0.1% to 1% SL range
+    
+    for tp, sl in product(tp_values, sl_values):
+        pnl = backtest_vwap_strategy(symbol, start_date, end_date, tp, sl)
+        if pnl > best_pnl:
+            best_pnl, best_tp, best_sl = pnl, tp, sl
+    
+    log_and_print(f"Best TP: {best_tp:.2f}%, Best SL: {best_sl:.2f}%, Max PnL: {best_pnl:.2f} USDT")
+    return best_tp, best_sl
 
 if __name__ == "__main__":
     symbol = 'DOGEUSDT'
