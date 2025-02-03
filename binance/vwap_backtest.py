@@ -38,13 +38,16 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
     return data
 
 def backtest_vwap_strategy(symbol, start_date, end_date):
-    """ Backtest VWAP strategy over historical data. """
+    """ Backtest VWAP strategy over historical data with simulated TP/SL. """
     total_pnl = 0
+    daily_pnl = {}
     position = None
     entry_price = 0
     entry_quantity = 0
-    capital = 1000  # Initial capital in USDT
+    capital = 35  # Initial capital in USDT
     position_size = 0.2  # Risking 20% per trade
+    tp_percentage = 0.5  # Take Profit at 0.5%
+    sl_percentage = 0.3  # Stop Loss at 0.3%
 
     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
     for date in date_range:
@@ -55,6 +58,7 @@ def backtest_vwap_strategy(symbol, start_date, end_date):
             continue
 
         data = calculate_vwap(data)
+        daily_pnl[date.date()] = 0
         for i in range(1, len(data)):
             close_price = data['close'].iloc[i]
             vwap = data['vwap'].iloc[i]
@@ -79,9 +83,16 @@ def backtest_vwap_strategy(symbol, start_date, end_date):
                 pnl = (close_price - entry_price) * entry_quantity if position == 'LONG' else (entry_price - close_price) * entry_quantity
                 log_and_print(f"Current PnL: {pnl:.2f} USDT")
                 
-                if pnl >= 0.5 * capital * position_size or pnl <= -0.3 * capital * position_size:
-                    log_and_print(f"Closing {position} at {close_price} with PnL: {pnl:.2f} USDT")
+                # Simulated TP/SL Process
+                if pnl >= tp_percentage * capital * position_size:
+                    log_and_print(f"Closing {position} at {close_price} due to Take Profit with PnL: {pnl:.2f} USDT")
                     total_pnl += pnl
+                    daily_pnl[date.date()] += pnl
+                    position = None
+                elif pnl <= -sl_percentage * capital * position_size:
+                    log_and_print(f"Closing {position} at {close_price} due to Stop Loss with PnL: {pnl:.2f} USDT")
+                    total_pnl += pnl
+                    daily_pnl[date.date()] += pnl
                     position = None
 
     # Ensure last position is closed at the last available price
@@ -90,11 +101,13 @@ def backtest_vwap_strategy(symbol, start_date, end_date):
         final_pnl = (final_price - entry_price) * entry_quantity if position == 'LONG' else (entry_price - final_price) * entry_quantity
         log_and_print(f"Closing Final {position} at {final_price} with PnL: {final_pnl:.2f} USDT")
         total_pnl += final_pnl
+        daily_pnl[date_range[-1].date()] += final_pnl
     
+    log_and_print(f"Daily PnL Summary: {daily_pnl}")
     log_and_print(f"Total PnL over backtest period: {total_pnl:.2f} USDT")
 
 if __name__ == "__main__":
     symbol = 'DOGEUSDT'
     start_date = '2025-01-01'
-    end_date = '2025-01-20'
+    end_date = '2025-01-30'
     backtest_vwap_strategy(symbol, start_date, end_date)
