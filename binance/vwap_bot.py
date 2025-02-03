@@ -90,7 +90,7 @@ async def trade_logic():
                     break
 
                 order_side = 'BUY' if signal == 'LONG' else 'SELL'
-                order = place_order(symbol, order_side, quantity)
+                # order = place_order(symbol, order_side, quantity)
                
                 order = order_side
                 message = (
