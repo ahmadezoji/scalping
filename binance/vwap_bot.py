@@ -143,32 +143,7 @@ async def main():
     )
 
 if __name__ == "__main__":
-    # asyncio.run(main())
+    asyncio.run(main())
 
-    # available_balance = get_futures_account_balance('USDT')
-    # leverage = 1  # Default leverage to avoid division errors
-    # current_price = 0.24934
-    # risk_factor = 0.9
-    # max_quantity = (available_balance * leverage * risk_factor) / current_price
-    # _, _, step_size = get_lot_size(SYMBOL) 
-    # adjusted_quantity = adjust_quantity(float(max_quantity), step_size)
-    # if adjusted_quantity < step_size:
-    #     raise ValueError(f"Calculated quantity {adjusted_quantity} is below the minimum lot size {step_size}.")
-    # log_and_print(f"Final Adjusted Quantity: {adjusted_quantity}")
-    # order = place_order(SYMBOL, "BUY", adjusted_quantity)
-
-    # available_balance = get_futures_account_balance('USDT')
-    available_balance  = 30
-    current_price =  94189.0
-
-    # leverage_info = client.futures_leverage_bracket(symbol=SYMBOL)[0]
-    # leverage = leverage_info['brackets'][0]['initialLeverage']
-    leverage = 1
-
-    # max_quantity = calculate_max_quantity(available_balance, leverage, current_price)
-    # quantity = min(available_balance, max_quantity)
-    risk_factor = 0.9  # Use 90% of the available balance
-    max_quantity = (available_balance * leverage * risk_factor) / current_price
-    log_and_print(f"Adjusted Quantity: {max_quantity}")
-
-    order = place_order(SYMBOL, "SELL", max_quantity)
+   
+   
