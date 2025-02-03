@@ -22,6 +22,9 @@ current_position = None
 entry_price = 0
 entry_quantity = 0
 SYMBOL='DOGEUSDT'
+tp_percentage = 0.30  # Take Profit at 0.5%
+sl_percentage = 0.10  # Stop Loss at 0.3%
+
 
 def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
     """
