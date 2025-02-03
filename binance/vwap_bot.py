@@ -124,7 +124,7 @@ async def tp_sl_monitor():
                 if data.empty:
                     await asyncio.sleep(interval)
                     continue
-
+                available_balance = get_futures_account_balance('USDT')
                 latest_price = data['close'].iloc[-1]
                 pnl_percentage = ((latest_price - entry_price) / entry_price) * 100 if current_position == 'LONG' else ((entry_price - latest_price) / entry_price) * 100
                 pnl_usdt = (pnl_percentage / 100) * (entry_price * entry_quantity)
@@ -134,12 +134,12 @@ async def tp_sl_monitor():
                 if (current_position == 'LONG' and pnl_percentage >= tp_percentage) or (current_position == 'SHORT' and pnl_percentage >= tp_percentage):
                     log_and_print("Take Profit triggered.")
                     # close_futures_position(symbol, current_position, entry_quantity)
-                    send_telegram_message(f"🚀 Take Profit hit!\n🔹 Symbol: {symbol}\n💰 Close Price: {latest_price}\n📈 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)")
+                    send_telegram_message(f"🚀 Take Profit hit!\n🔹 Symbol: {symbol}\n💰 Close Price: {latest_price}\n📈 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)\n Balance:{available_balance} ")
                     current_position = None
                 elif (current_position == 'LONG' and pnl_percentage <= -sl_percentage) or (current_position == 'SHORT' and pnl_percentage <= -sl_percentage):
                     log_and_print("Stop Loss triggered.")
                     # close_futures_position(symbol, current_position, entry_quantity)
-                    send_telegram_message(f"⚠️ Stop Loss hit!\n🔹 Symbol: {symbol}\n💰 Close Price: {latest_price}\n📉 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)")
+                    send_telegram_message(f"⚠️ Stop Loss hit!\n🔹 Symbol: {symbol}\n💰 Close Price: {latest_price}\n📉 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT) \n Balance:{available_balance} ")
                     current_position = None
 
         except Exception as e:
