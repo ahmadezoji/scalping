@@ -91,6 +91,15 @@ async def trade_logic():
 
                 order_side = 'BUY' if signal == 'LONG' else 'SELL'
                 order = place_order(symbol, order_side, quantity)
+               
+                order = order_side
+                message = (
+                    f"🚀 <b>New Order Placed</b> 🚀\n"
+                    f"📈 <b>Symbol:</b> {symbol}\n"
+                    f"🔁 <b>Action:</b> {order_side}\n"
+                    f"💵 <b>Quantity:</b> {quantity}\n"
+                )
+                send_telegram_message(message)
                 if order:
                     current_position = signal
                     entry_price = current_price
@@ -106,7 +115,7 @@ def calculate_max_quantity(available_balance, leverage, current_price):
 async def tp_sl_monitor():
     global current_position, entry_price, entry_quantity
     symbol = SYMBOL
-    interval = 30  # Check every 30 seconds
+    interval = 30  
 
     while True:
         try:
@@ -124,12 +133,12 @@ async def tp_sl_monitor():
 
                 if (current_position == 'LONG' and pnl_percentage >= tp_percentage) or (current_position == 'SHORT' and pnl_percentage >= tp_percentage):
                     log_and_print("Take Profit triggered.")
-                    close_futures_position(symbol, current_position, entry_quantity)
+                    # close_futures_position(symbol, current_position, entry_quantity)
                     send_telegram_message(f"🚀 Take Profit hit!\n🔹 Symbol: {symbol}\n💰 Close Price: {latest_price}\n📈 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)")
                     current_position = None
                 elif (current_position == 'LONG' and pnl_percentage <= -sl_percentage) or (current_position == 'SHORT' and pnl_percentage <= -sl_percentage):
                     log_and_print("Stop Loss triggered.")
-                    close_futures_position(symbol, current_position, entry_quantity)
+                    # close_futures_position(symbol, current_position, entry_quantity)
                     send_telegram_message(f"⚠️ Stop Loss hit!\n🔹 Symbol: {symbol}\n💰 Close Price: {latest_price}\n📉 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)")
                     current_position = None
 
