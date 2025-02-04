@@ -6,7 +6,8 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import time
-from index import SYMBOL, tp_percentage, sl_percentage,entry_usdt
+from index import SYMBOL, tp_percentage, sl_percentage, entry_usdt, trade_interval, sleep_time, tp_sl_check_interval
+
 
 logging.basicConfig(
     filename='vwap_bot.log',
@@ -54,8 +55,8 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
 async def trade_logic():
     global current_position, entry_price, entry_quantity
     symbol = SYMBOL
-    interval = '5m'  # 5-minute timeframe
-    interval_value = 5  # Adjusted sleep interval in minutes
+    interval = trade_interval
+    interval_value = sleep_time
 
     while True:
         try:
@@ -135,7 +136,7 @@ def calculate_max_quantity(available_balance, leverage, current_price):
 async def tp_sl_monitor():
     global current_position, entry_price, entry_quantity
     symbol = SYMBOL
-    interval = 30  
+    interval = tp_sl_check_interval
 
     while True:
         try:
