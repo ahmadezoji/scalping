@@ -51,11 +51,74 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
     data['stoch_d'] = data['stoch_k'].rolling(3).mean()
     return data
 
+# async def trade_logic():
+#     global current_position, entry_price, entry_quantity
+#     symbol = SYMBOL
+#     interval = '5m'  # 5-minute timeframe
+#     interval_value = 5  # Adjusted sleep interval in minutes
+
+#     while True:
+#         try:
+#             data = get_klines_all(symbol, interval, limit=20)
+#             if data.empty:
+#                 log_and_print("No data retrieved from Binance API.")
+#                 await asyncio.sleep(interval_value * 60)
+#                 continue
+
+#             data = calculate_vwap(data)
+
+#             signal = None
+#             if data['close'].iloc[-1] > data['vwap'].iloc[-1] * 0.999 and data['stoch_k'].iloc[-1] < 70 and data['rsi'].iloc[-1] > 50 and data['close'].iloc[-1] > data['ema_trend'].iloc[-1]:
+#                 signal = 'LONG'
+#             elif data['close'].iloc[-1] < data['vwap'].iloc[-1] * 1.001 and data['stoch_k'].iloc[-1] > 30 and data['rsi'].iloc[-1] < 50 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
+#                 signal = 'SHORT'
+
+
+#             log_and_print(f"Signal Check: close={data['close'].iloc[-1]}, vwap={data['vwap'].iloc[-1]}, stoch_k={data['stoch_k'].iloc[-1]}, rsi={data['rsi'].iloc[-1]}, ema_trend={data['ema_trend'].iloc[-1]}")
+
+#             if signal and (current_position is None or current_position != signal):
+#                 log_and_print(f"Signal Generated: {signal}")
+#                 available_balance = get_futures_account_balance('USDT')
+#                 current_price = data['close'].iloc[-1]
+
+#                 leverage_info = client.futures_leverage_bracket(symbol=symbol)[0]
+#                 leverage = leverage_info['brackets'][0]['initialLeverage']
+
+#                 max_quantity = calculate_max_quantity(available_balance, leverage, current_price)
+#                 quantity = min(available_balance, max_quantity)
+#                 log_and_print(f"Adjusted Quantity: {quantity}")
+
+#                 if available_balance < 20:
+#                     log_and_print("Insufficient balance. Stopping bot.")
+#                     send_telegram_message("Insufficient balance. Stopping bot.")
+#                     break
+
+#                 order_side = 'BUY' if signal == 'LONG' else 'SELL'
+#                 # order = place_order(symbol, order_side, quantity)
+               
+#                 order = order_side
+#                 message = (
+#                     f"🚀 <b>New Order Placed</b> 🚀\n"
+#                     f"📈 <b>Symbol:</b> {symbol}\n"
+#                     f"🔁 <b>Action:</b> {order_side}\n"
+#                     f"💵 <b>Quantity:</b> {quantity}\n"
+#                 )
+#                 send_telegram_message(message)
+#                 if order:
+#                     current_position = signal
+#                     entry_price = current_price
+#                     entry_quantity = quantity
+
+#         except Exception as e:
+#             log_and_print(f"Error in trade logic: {e}")
+
+#         await asyncio.sleep(interval_value * 60)
+
 async def trade_logic():
     global current_position, entry_price, entry_quantity
     symbol = SYMBOL
-    interval = '5m'  # 5-minute timeframe
-    interval_value = 5  # Adjusted sleep interval in minutes
+    interval = '1m'  # 5-minute timeframe
+    interval_value = 1  # Adjusted sleep interval in minutes
 
     while True:
         try:
@@ -73,10 +136,22 @@ async def trade_logic():
             elif data['close'].iloc[-1] < data['vwap'].iloc[-1] * 1.001 and data['stoch_k'].iloc[-1] > 30 and data['rsi'].iloc[-1] < 50 and data['close'].iloc[-1] < data['ema_trend'].iloc[-1]:
                 signal = 'SHORT'
 
-
             log_and_print(f"Signal Check: close={data['close'].iloc[-1]}, vwap={data['vwap'].iloc[-1]}, stoch_k={data['stoch_k'].iloc[-1]}, rsi={data['rsi'].iloc[-1]}, ema_trend={data['ema_trend'].iloc[-1]}")
 
-            if signal and (current_position is None or current_position != signal):
+            if signal:
+                if current_position and current_position != signal:
+                    # Calculate PnL when closing previous position
+                    latest_price = data['close'].iloc[-1]
+                    pnl_percentage = ((latest_price - entry_price) / entry_price) * 100 if current_position == 'LONG' else ((entry_price - latest_price) / entry_price) * 100
+                    pnl_usdt = (pnl_percentage / 100) * (entry_price * entry_quantity)
+
+                    log_and_print(f"Closing {current_position} position - PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)")
+                    send_telegram_message(
+                        f"🔄 Position Closed\n🔹 Previous Position: {current_position}\n💰 Exit Price: {latest_price}\n📈 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)"
+                    )
+                    current_position = None  # Reset current position
+
+                # Place new order
                 log_and_print(f"Signal Generated: {signal}")
                 available_balance = get_futures_account_balance('USDT')
                 current_price = data['close'].iloc[-1]
@@ -95,7 +170,6 @@ async def trade_logic():
 
                 order_side = 'BUY' if signal == 'LONG' else 'SELL'
                 # order = place_order(symbol, order_side, quantity)
-               
                 order = order_side
                 message = (
                     f"🚀 <b>New Order Placed</b> 🚀\n"
@@ -104,6 +178,7 @@ async def trade_logic():
                     f"💵 <b>Quantity:</b> {quantity}\n"
                 )
                 send_telegram_message(message)
+
                 if order:
                     current_position = signal
                     entry_price = current_price
@@ -113,6 +188,8 @@ async def trade_logic():
             log_and_print(f"Error in trade logic: {e}")
 
         await asyncio.sleep(interval_value * 60)
+
+
 def calculate_max_quantity(available_balance, leverage, current_price):
     max_quantity = (available_balance * leverage) / current_price
     return max_quantity
