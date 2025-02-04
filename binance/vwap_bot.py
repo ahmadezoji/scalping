@@ -117,8 +117,8 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
 async def trade_logic():
     global current_position, entry_price, entry_quantity
     symbol = SYMBOL
-    interval = '1m'  # 5-minute timeframe
-    interval_value = 1  # Adjusted sleep interval in minutes
+    interval = '5m'  # 5-minute timeframe
+    interval_value = 5  # Adjusted sleep interval in minutes
 
     while True:
         try:
