@@ -1,12 +1,34 @@
 from binance.client import Client
+import configparser
 from binance.exceptions import BinanceAPIException
 import logging
 from telegram import send_telegram_message
 import pandas as pd
+import os
 
 
-API_KEY = '81vXiGyDU5cAgMH5PB5xHem9V9sGw6E1QaXGxyVMm79p0Gk8E7OYMf2OnSrMVWom'
-API_SECRET = 'gQWW6QW73sh9a83O4B5W6MzEmnXRxE55hsqM2Lvz1I27CtFog5EqBPI8moFIPICb'
+# Debugging: Check if config.ini exists
+config_path = "config.ini"
+if not os.path.exists(config_path):
+    raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+# Load configuration file
+config = configparser.ConfigParser()
+config.read(config_path)
+
+# Debugging: Print sections to see if they are read correctly
+print("Config Sections:", config.sections())
+
+# Read values
+try:
+    SYMBOL = config["TRADING"]["SYMBOL"]
+    tp_percentage = float(config["TRADING"]["tp_percentage"])
+    sl_percentage = float(config["TRADING"]["sl_percentage"])
+
+    API_KEY = config["API"]["API_KEY"]
+    API_SECRET = config["API"]["API_SECRET"]
+except KeyError as e:
+    raise KeyError(f"Missing key in config.ini: {e}")
 
 try:
     client = Client(API_KEY, API_SECRET, testnet=False)
