@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import time
-from index import SYMBOL, tp_percentage, sl_percentage
+from index import SYMBOL, tp_percentage, sl_percentage,entry_usdt
 
 logging.basicConfig(
     filename='vwap_bot.log',
@@ -90,14 +90,16 @@ async def trade_logic():
 
                 # Place new order
                 log_and_print(f"Signal Generated: {signal}")
+
                 available_balance = get_futures_account_balance('USDT')
+
                 current_price = data['close'].iloc[-1]
 
                 leverage_info = client.futures_leverage_bracket(symbol=symbol)[0]
                 leverage = leverage_info['brackets'][0]['initialLeverage']
 
-                max_quantity = calculate_max_quantity(available_balance, leverage, current_price)
-                quantity = min(available_balance, max_quantity)
+                max_quantity = calculate_max_quantity(entry_usdt, leverage, current_price)
+                quantity = min(entry_usdt, max_quantity)
                 log_and_print(f"Adjusted Quantity: {quantity}")
 
                 if available_balance < 20:
@@ -174,6 +176,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
 
    
    

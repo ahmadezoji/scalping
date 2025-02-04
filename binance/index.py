@@ -24,6 +24,8 @@ try:
     SYMBOL = config["TRADING"]["SYMBOL"]
     tp_percentage = float(config["TRADING"]["tp_percentage"])
     sl_percentage = float(config["TRADING"]["sl_percentage"])
+    entry_usdt = float(config["TRADING"]["entry_usdt"])
+
 
     API_KEY = config["API"]["API_KEY"]
     API_SECRET = config["API"]["API_SECRET"]
