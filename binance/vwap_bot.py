@@ -77,17 +77,22 @@ async def trade_logic():
             log_and_print(f"Signal Check: close={data['close'].iloc[-1]}, vwap={data['vwap'].iloc[-1]}, stoch_k={data['stoch_k'].iloc[-1]}, rsi={data['rsi'].iloc[-1]}, ema_trend={data['ema_trend'].iloc[-1]}")
 
             if signal:
-                if current_position and current_position != signal:
-                    # Calculate PnL when closing previous position
-                    latest_price = data['close'].iloc[-1]
-                    pnl_percentage = ((latest_price - entry_price) / entry_price) * 100 if current_position == 'LONG' else ((entry_price - latest_price) / entry_price) * 100
-                    pnl_usdt = (pnl_percentage / 100) * (entry_price * entry_quantity)
+                if current_position:
+                    if current_position == signal:
+                        # Skip the rest of the loop and go to the next iteration
+                        await asyncio.sleep(interval_value * 60)
+                        continue
+                    if current_position != signal:
+                        # Calculate PnL when closing previous position
+                        latest_price = data['close'].iloc[-1]
+                        pnl_percentage = ((latest_price - entry_price) / entry_price) * 100 if current_position == 'LONG' else ((entry_price - latest_price) / entry_price) * 100
+                        pnl_usdt = (pnl_percentage / 100) * (entry_price * entry_quantity)
 
-                    log_and_print(f"Closing {current_position} position - PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)")
-                    send_telegram_message(
-                        f"🔄 Position Closed\n🔹 Previous Position: {current_position}\n💰 Exit Price: {latest_price}\n📈 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)"
-                    )
-                    current_position = None  # Reset current position
+                        log_and_print(f"Closing {current_position} position - PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)")
+                        send_telegram_message(
+                            f"🔄 Position Closed\n🔹 Previous Position: {current_position}\n💰 Exit Price: {latest_price}\n📈 PnL: {pnl_percentage:.2f}% ({pnl_usdt:.2f} USDT)"
+                        )
+                        current_position = None  # Reset current position
 
                 # Place new order
                 log_and_print(f"Signal Generated: {signal}")
