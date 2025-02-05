@@ -31,14 +31,25 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
     """
     Perform VWAP strategy calculations.
     """
-    delta = data['close'].diff(1)
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    avg_gain = gain.rolling(rsi_period).mean()
-    avg_loss = loss.rolling(rsi_period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    data['rsi'] = 100 - (100 / (1 + rs.fillna(0)))
-    data['ema_trend'] = data['close'].rolling(15).mean()
+    delta = data['close'].diff()
+
+    # Gain and Loss
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+
+    # Calculate Initial Average Gain/Loss using SMA
+    avg_gain = pd.Series(gain).rolling(window=rsi_period, min_periods=rsi_period).mean()
+    avg_loss = pd.Series(loss).rolling(window=rsi_period, min_periods=rsi_period).mean()
+
+    # Apply Wilder's Smoothing (Cumulative Moving Average)
+    avg_gain = avg_gain.shift().fillna(0) * (rsi_period - 1) / rsi_period + gain / rsi_period
+    avg_loss = avg_loss.shift().fillna(0) * (rsi_period - 1) / rsi_period + loss / rsi_period
+
+    rs = avg_gain / avg_loss
+    data['rsi'] = 100 - (100 / (1 + rs))
+
+    # data['ema_trend'] = data['close'].rolling(15).mean()
+    data['ema_trend'] = data['close'].ewm(span=15, adjust=False).mean()
     data['vwap'] = (data['close'] * data['volume']).cumsum() / data['volume'].cumsum()
     high_low = data['high'] - data['low']
     high_close = abs(data['high'] - data['close'].shift(1))
@@ -46,8 +57,8 @@ def calculate_vwap(data, atr_period=14, stochastic_period=14, rsi_period=14):
     data['tr'] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     data['atr'] = data['tr'].rolling(atr_period).mean()
     data['stoch_k'] = (
-        (data['close'] - data['low'].rolling(stochastic_period).min()) /
-        (data['high'].rolling(stochastic_period).max() - data['low'].rolling(stochastic_period).min())
+    (data['close'] - data['low'].rolling(stochastic_period).min()) /
+    (data['high'].rolling(stochastic_period).max() - data['low'].rolling(stochastic_period).min() + 1e-6)
     ) * 100
     data['stoch_d'] = data['stoch_k'].rolling(3).mean()
     return data
