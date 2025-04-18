@@ -359,9 +359,9 @@ if __name__ == "__main__":
     # asyncio.run(main())
     # Example usage
     symbol = 'BTCUSDT'
-    timeframe = '5m'  # You can use: '1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d'
-    start_date = '2025-02-25 00:00:00'
-    end_date = '2025-02-26 00:00:00'
+    timeframe = '15m'  # You can use: '1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d'
+    start_date = '2025-04-1 00:00:00'
+    end_date = '2025-04-10 00:00:00'
 
     # Run backtest
     results = backtest_strategy(symbol, timeframe, start_date, end_date)
