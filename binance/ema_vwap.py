@@ -366,13 +366,13 @@ def calculate_winrate_per_5_days(symbol: str, timeframes: list[str], sl_tp_combi
 # -----------------------------
 if __name__ == "__main__":
     # example back‑test run (adjust dates & timeframe) — disabled for safety
-    # res = backtest_strategy(SYMBOL, trade_interval, "2025-03-01 00:00:00", "2025-03-10 23:59:00")
-    # print_backtest_results(res)
+    res = backtest_strategy(SYMBOL, trade_interval, "2025-01-01 00:00:00", "2025-01-28 23:59:00", starting_balance=entry_usdt)
+    print_backtest_results(res)
 
     # Example: Calculate win rate for each 5-day period in April 2025
-    timeframes = ["5m", "15m"]
-    sl_tp_combinations = [(0.5, 0.8), (1.0, 1.5), (1.5, 2.0)]  # SL and TP percentages to test
-    calculate_winrate_per_5_days(SYMBOL, timeframes, sl_tp_combinations)
+    # timeframes = ["5m", "15m"]
+    # sl_tp_combinations = [(0.5, 0.8), (1.0, 1.5), (1.5, 2.0)]  # SL and TP percentages to test
+    # calculate_winrate_per_5_days(SYMBOL, timeframes, sl_tp_combinations)
 
     # To activate live trading:
     # asyncio.run(trade_logic())
