@@ -310,13 +310,69 @@ def print_backtest_results(results: dict):
                 f"{t['position']:5} | {t['entry_time']} → {t['exit_time']} | {t['pnl_pct']:.2f}%"
             )
 
+# -------------------------------------------------
+# Calculate win rate for each 5-day period
+# -------------------------------------------------
+
+def calculate_winrate_per_5_days(symbol: str, timeframes: list[str], sl_tp_combinations: list[tuple[float, float]]):
+    """Calculate win rate for each 5-day period in April 2025."""
+    start_date = pd.Timestamp("2025-04-01")
+    end_date = pd.Timestamp("2025-04-30")
+    results = []
+
+    while start_date < end_date:
+        next_date = start_date + pd.Timedelta(days=5)
+        for timeframe in timeframes:
+            for sl, tp in sl_tp_combinations:
+                global sl_percentage, tp_percentage
+                sl_percentage = sl
+                tp_percentage = tp
+
+                try:
+                    res = backtest_strategy(
+                        symbol,
+                        timeframe,
+                        start_date.strftime("%Y-%m-%d %H:%M:%S"),
+                        next_date.strftime("%Y-%m-%d %H:%M:%S"),
+                        starting_balance=100.0,
+                    )
+                    results.append({
+                        "start_date": start_date.strftime("%Y-%m-%d"),
+                        "end_date": next_date.strftime("%Y-%m-%d"),
+                        "timeframe": timeframe,
+                        "sl_percentage": sl,
+                        "tp_percentage": tp,
+                        "win_rate": res["win_rate"],
+                        "total_return_pct": res["total_return_pct"],
+                        "total_trades": res["total_trades"],
+                    })
+                except Exception as e:
+                    print(f"Error for {start_date} to {next_date}, {timeframe}, SL={sl}, TP={tp}: {e}")
+
+        start_date = next_date
+
+    # Print results
+    print("\n=== Win Rate Results for April 2025 ===")
+    for result in results:
+        print(
+            f"Period: {result['start_date']} to {result['end_date']} | "
+            f"Timeframe: {result['timeframe']} | SL: {result['sl_percentage']}% | TP: {result['tp_percentage']}% | "
+            f"Win Rate: {result['win_rate']:.2f}% | Total Return: {result['total_return_pct']:.2f}% | "
+            f"Total Trades: {result['total_trades']}"
+        )
+
 # -----------------------------
 # Quick manual test runner
 # -----------------------------
 if __name__ == "__main__":
     # example back‑test run (adjust dates & timeframe) — disabled for safety
-    res = backtest_strategy(SYMBOL, trade_interval, "2025-03-01 00:00:00", "2025-03-10 23:59:00")
-    print_backtest_results(res)
+    # res = backtest_strategy(SYMBOL, trade_interval, "2025-03-01 00:00:00", "2025-03-10 23:59:00")
+    # print_backtest_results(res)
+
+    # Example: Calculate win rate for each 5-day period in April 2025
+    timeframes = ["5m", "15m"]
+    sl_tp_combinations = [(0.5, 0.8), (1.0, 1.5), (1.5, 2.0)]  # SL and TP percentages to test
+    calculate_winrate_per_5_days(SYMBOL, timeframes, sl_tp_combinations)
 
     # To activate live trading:
     # asyncio.run(trade_logic())
