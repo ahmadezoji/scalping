@@ -364,3 +364,7 @@ def close_all_positions():
 
     except Exception as e:
         logging.error(f"Error fetching or closing positions: {e}")
+
+def calculate_max_quantity(available_balance, leverage, current_price):
+    max_quantity = (available_balance * leverage) / current_price
+    return max_quantity
