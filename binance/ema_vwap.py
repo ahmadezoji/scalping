@@ -36,8 +36,12 @@ SL_PCT        = float(TRADING.get("sl_percentage", 0.5))
 EMA_SPAN      = int(STRAT.get("ema_span", 21))
 VWAP_BUFFER   = float(STRAT.get("vwap_buffer", 0.001))
 RSI_GATE      = int(STRAT.get("rsi_gate", 55))
-
-
+STOCH_OVERBOUGHT = int(STRAT.get("stoch_k_overbought", 70))
+STOCH_OVERSOLD  = int(STRAT.get("stoch_k_oversold", 30))
+TP_SL_MODE    = STRAT.get("tp_sl_mode", "fixed")
+TP_MULTIPLIER = float(STRAT.get("tp_multiplier", 1.5))
+SL_MULTIPLIER = float(STRAT.get("sl_multiplier", 1.0))
+COOLDOWN_MINUTES = int(STRAT.get("cooldown_minutes", 0))
 
 # Set up Binance client (public endpoints only – no API keys needed for klines)
 client = Client("", "", testnet=False)
@@ -45,7 +49,6 @@ client = Client("", "", testnet=False)
 # ---------------------------------------------------------------------------
 # Indicator helpers
 # ---------------------------------------------------------------------------
-
 def calculate_indicators(df: pd.DataFrame, ema_span: int, rsi_period: int = 14,
                          stochastic_period: int = 14) -> pd.DataFrame:
     """Add EMA, VWAP, RSI, ATR, Stoch K/D columns."""
@@ -85,11 +88,12 @@ class BtMetrics:
     def win_rate(self):
         return (self.wins / self.total_trades * 100) if self.total_trades else 0.0
 
-
 def backtest(ema_span: int, vwap_buffer: float, rsi_gate: int,
              tp_pct: float = TP_PCT, sl_pct: float = SL_PCT) -> BtMetrics:
-    """Single‑pass back‑test returning performance metrics."""
-    # Fetch klines
+    from datetime import timedelta
+    cooldown_period = timedelta(minutes=COOLDOWN_MINUTES)
+    last_exit_time = None
+
     start_ms = int(datetime.strptime(START, "%Y-%m-%d %H:%M:%S").timestamp()*1000)
     end_ms   = int(datetime.strptime(END,   "%Y-%m-%d %H:%M:%S").timestamp()*1000)
     klines = client.futures_historical_klines(SYMBOL, TFRAME, start_ms, end_ms)
@@ -106,7 +110,6 @@ def backtest(ema_span: int, vwap_buffer: float, rsi_gate: int,
 
     df = calculate_indicators(df, ema_span)
 
-    # Back‑test loop
     in_position = False
     entry_price = 0
     balance = ENTRY_USDT
@@ -116,16 +119,21 @@ def backtest(ema_span: int, vwap_buffer: float, rsi_gate: int,
     for i in range(20, len(df)):
         row = df.iloc[i]
         price = row["close"]
+        now_time = row["ts"]
         signal = None
-        if (price > row["vwap"] * (1 - vwap_buffer) and row["stoch_k"] < 70 and
+
+        if (price > row["vwap"] * (1 - vwap_buffer) and row["stoch_k"] < STOCH_OVERBOUGHT and
                 row["rsi"] > rsi_gate and price > row["ema_trend"]):
             signal = "LONG"
-        elif (price < row["vwap"] * (1 + vwap_buffer) and row["stoch_k"] > 30 and
+        elif (price < row["vwap"] * (1 + vwap_buffer) and row["stoch_k"] > STOCH_OVERSOLD and
                 row["rsi"] < (100 - rsi_gate) and price < row["ema_trend"]):
             signal = "SHORT"
 
         if in_position:
             pnl_pct = ((price - entry_price)/entry_price*100) if pos == "LONG" else ((entry_price - price)/entry_price*100)
+            if TP_SL_MODE == 'atr':
+                tp_pct = row['atr'] * TP_MULTIPLIER
+                sl_pct = row['atr'] * SL_MULTIPLIER
             if pnl_pct >= tp_pct or pnl_pct <= -sl_pct:
                 metrics.total_trades += 1
                 if pnl_pct > 0:
@@ -136,7 +144,8 @@ def backtest(ema_span: int, vwap_buffer: float, rsi_gate: int,
                 dd = (peak - balance)/peak*100
                 metrics.max_dd = max(metrics.max_dd, dd)
                 in_position = False
-        elif signal:
+                last_exit_time = now_time
+        elif signal and (last_exit_time is None or now_time - last_exit_time > cooldown_period):
             in_position = True
             pos = signal
             entry_price = price
@@ -146,15 +155,12 @@ def backtest(ema_span: int, vwap_buffer: float, rsi_gate: int,
 # ---------------------------------------------------------------------------
 # Optimiser
 # ---------------------------------------------------------------------------
-
 def _parse_range(raw: str, cast):
-    """Convert comma‑/colon‑separated ranges to list[int|float]."""
     raw = str(raw).strip()
-    if ":" in raw:                 # eg 0.0005:0.002:0.0005
+    if ":" in raw:
         start, stop, step = map(float if cast is float else int, raw.split(":"))
         return [cast(start + i*step) for i in range(int((stop-start)/step)+1)]
     return [cast(v) for v in raw.split(",")]
-
 
 def optimise() -> tuple[dict, BtMetrics]:
     spans   = _parse_range(OPT_CFG.get("ema_span", EMA_SPAN), int)
@@ -163,7 +169,7 @@ def optimise() -> tuple[dict, BtMetrics]:
     tps     = _parse_range(OPT_CFG.get("tp_percentage", TP_PCT), float)
     sls     = _parse_range(OPT_CFG.get("sl_percentage", SL_PCT), float)
 
-    objective = OPT_CFG.get("objective", "rr")      # rr | win | return
+    objective = OPT_CFG.get("objective", "rr")
 
     best_cfg, best_met, best_score = None, None, -9e9
     logging.info("Starting grid search …")
@@ -173,7 +179,7 @@ def optimise() -> tuple[dict, BtMetrics]:
             score = met.win_rate
         elif objective == "return":
             score = met.total_return_pct
-        else:  # risk‑reward: reward – drawdown penalty
+        else:
             score = met.total_return_pct - met.max_dd
         if score > best_score:
             best_cfg = dict(ema_span=ema, vwap_buffer=buf, rsi_gate=rg, tp=tp, sl=sl)
@@ -184,10 +190,8 @@ def optimise() -> tuple[dict, BtMetrics]:
 # ---------------------------------------------------------------------------
 # Main – back‑test or optimise
 # ---------------------------------------------------------------------------
-
-# Back‑test window (hard‑coded per user’s request)
 START = "2025-04-01 00:00:00"
-END   = "2025-04-26 23:59:00"
+END   = "2025-04-28 23:59:00"
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -200,10 +204,15 @@ if __name__ == "__main__":
     else:
         met = backtest(EMA_SPAN, VWAP_BUFFER, RSI_GATE)
 
+    final_balance = ENTRY_USDT * (1 + met.total_return_pct / 100)
+
     print("\n=== Results ===")
-    print(f"Trades     : {met.total_trades}")
-    print(f"Win rate   : {met.win_rate:.2f} %")
-    print(f"Return     : {met.total_return_pct:.2f} %")
-    print(f"Max DD     : {met.max_dd:.2f} %")
+    print(f"Total Trades       : {met.total_trades}")
+    print(f"Winning Trades     : {met.wins}")
+    print(f"Win Rate           : {met.win_rate:.2f} %")
+    print(f"Avg Profit/Trade   : {(met.total_return_pct / met.total_trades if met.total_trades else 0):.2f} %")
+    print(f"Total Return       : {met.total_return_pct:.2f} %")
+    print(f"Max Draw‑down      : {met.max_dd:.2f} %")
+    print(f"Final Balance      : {final_balance:.2f} USDT")
     if OPT_CFG.getboolean("enabled", False):
-        print(f"Score      : {met.total_return_pct - met.max_dd:.2f}")
+        print(f"Score              : {met.total_return_pct - met.max_dd:.2f}")
