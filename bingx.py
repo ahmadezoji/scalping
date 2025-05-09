@@ -16,8 +16,8 @@ OrderType = Enum('OrderType', ['LONG', 'SHORT','NONE'])
 
 # APIURL = "https://open-api.bingx.com"
 APIURL = "https://open-api-vst.bingx.com"
-APIKEY = 'CGRMVGm69DTMVYB6nAUbgOzfnXVBz0dY2NLVd1jG0JaJpInitIzxxuciPArmFiFldTjR5WqHXQMY0FcFuQ'
-SECRETKEY = 'cZg6feI0YVG6H7x8OQuR7gFv84rYHn9q5Gi38WgWQ7guy4l5mV9r2kijbN56Tt3ZnKByVtVuDO60x0taflMMw'
+APIKEY = 'wHFRkNEkZYDSAwfenDsVAhkPDMPoAWfwQnpNF5VE0vmlJpZyhFJxQ1g4lIRQVlVTHl3vekzs13GVSET8FiJ6Q'
+SECRETKEY = '8RDSme2ZKpbKwgJX4KdW4hNMYHGrjHJxYk2aNF7z2butlCRnLN0pHuikvcNwfJ5TIAHVS2kfGzDBuOxwuOfGpA'
 
 
 
@@ -79,7 +79,8 @@ def open_long(symbol, quantity):
     }
     paramsStr = praseParam(paramsMap)
     response = send_request(method, path, paramsStr, payload)
-    return (response.json().get('data').get('order').get('orderId'), OrderType.LONG) if response.json().get('code') == 0 else (-1, OrderType.LONG)
+    return (response.json().get('data').get('order').get('orderId'), OrderType.LONG, quantity) if response.json().get('code') == 0 else (-1, OrderType.LONG, quantity)
+
 
 def open_short(symbol, quantity):
     payload = {}
@@ -95,9 +96,35 @@ def open_short(symbol, quantity):
     }
     paramsStr = praseParam(paramsMap)
     response = send_request(method, path, paramsStr, payload)
-    
-    return (response.json().get('data').get('order').get('orderId'), OrderType.SHORT) if response.json().get('code') == 0 else (-1, OrderType.SHORT)
 
+    return (response.json().get('data').get('order').get('orderId'), OrderType.SHORT, quantity) if response.json().get('code') == 0 else (-1, OrderType.SHORT, quantity)
+
+
+def closeAllPosition(symbol):
+    payload = {}
+    path = '/openApi/swap/v2/trade/closeAllPositions'
+    method = "POST"
+    paramsMap = {
+       "timestamp": str(int(time.time() * 1000)),
+        "symbol": symbol
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response.status_code
+
+
+
+def closePosition(positionId):
+    payload = {}
+    path = '/openApi/swap/v1/trade/closePosition'
+    method = "POST"
+    paramsMap = {
+        "timestamp": str(int(time.time() * 1000)),
+        "positionId": str(positionId)
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response
 
 
 
@@ -115,7 +142,23 @@ def close_long(symbol, quantity):
     }
     paramsStr = praseParam(paramsMap)
     response = send_request(method, path, paramsStr, payload)
-    return response
+    return response.json().get('code')
+
+def close_short(symbol, quantity):
+    payload = {}
+    path = '/openApi/swap/v2/trade/order'
+    method = "POST"
+    paramsMap = {
+        "symbol": symbol,
+        "side": "BUY",
+        "positionSide": "SHORT",
+        "type": "MARKET",
+        "quantity": quantity,
+        "timestamp": str(int(time.time() * 1000))
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response.json().get('code')
 
 
 def close_all_order(symbol):
@@ -147,40 +190,46 @@ def check_order_status(symbol, order_id):
 
 
 def close_order(symbol, order_id):
-    order_status_response = check_order_status(symbol, order_id)
+    # order_status_response = check_order_status(symbol, order_id)
     # Check if the order is still active before attempting to cancel
-    if order_status_response.json().get('status') == 'NEW':
+    # print(f'order_status_response = {order_status_response.text}')
+    # if order_status_response.json().get('status') == 'NEW':
         # Continue with the cancel order logic
-        payload = {}
-        path = '/openApi/swap/v2/trade/order'
-        method = "DELETE"
-        params_map = {
-            "orderId": order_id,
-            "symbol": symbol,
-            "timestamp": str(int(time.time() * 1000))
-        }
-        params_str = praseParam(params_map)
-        return send_request(method, path, params_str, payload)
-    else:
-        print(f"Order {order_id} is not active and cannot be canceled.")
+    payload = {}
+    path = '/openApi/swap/v2/trade/order'
+    method = "DELETE"
+    params_map = {
+        "orderId": order_id,
+        "symbol": symbol,
+        "timestamp": str(int(time.time() * 1000))
+    }
+    params_str = praseParam(params_map)
+    response = send_request(method, path, params_str, payload)
+    print(f'close order result = {response.text}')
+    # return send_request(method, path, params_str, payload)
+    # else:
+    # print(f"Order {order_id} is not active and cannot be canceled.")
 
 
 
 
 def last_price(symbol):
-    payload = {}
-    path = '/openApi/swap/v1/ticker/price'
-    method = "GET"
-    paramsMap = {
-    "timestamp": str(int(time.time() * 1000)),
-    "symbol": symbol
-    }
-    paramsStr = praseParam(paramsMap)
-    response =  send_request(method, path, paramsStr, payload)
+    try:
+        payload = {}
+        path = '/openApi/swap/v1/ticker/price'
+        method = "GET"
+        paramsMap = {
+        "timestamp": str(int(time.time() * 1000)),
+        "symbol": symbol
+        }
+        paramsStr = praseParam(paramsMap)
+        response =  send_request(method, path, paramsStr, payload)
 
 
-    last_price =  (json.loads(response.text))['data']['price']
-    return float(last_price)
+        last_price =  (json.loads(response.text))['data']['price']
+        return float(last_price)
+    except Exception as e:
+        raise
     
     
    
@@ -201,7 +250,7 @@ def get_server_time():
     return data.get('serverTime', {})
 
 
-def get_kline(symbol, interval,start=str(int(time.time() * 1000))):
+def get_kline(symbol, interval, limit, start=str(int(time.time() * 1000))):
     server_time = get_server_time()
     payload = {}
     path = '/openApi/swap/v3/quote/klines'
@@ -209,7 +258,8 @@ def get_kline(symbol, interval,start=str(int(time.time() * 1000))):
     paramsMap = {
         "symbol": symbol,
         "interval": interval,
-        "startTime":start
+        "limit": limit,
+        "startTime": start
     }
     
 
@@ -239,3 +289,17 @@ def praseParam(paramsMap):
     paramsStr = "&".join(["%s=%s" % (x, paramsMap[x]) for x in sortedKeys])
     return paramsStr+"&timestamp="+str(int(time.time() * 1000))
 
+
+def setLeverage(symbol, side, leverage):
+    payload = {}
+    path = '/openApi/swap/v2/trade/leverage'
+    method = "POST"
+    paramsMap = {
+        "leverage": leverage,
+        "side": side,
+        "symbol": symbol,
+        "timestamp": str(int(time.time() * 1000))
+    }
+    paramsStr = praseParam(paramsMap)
+    response = send_request(method, path, paramsStr, payload)
+    return response.status_code

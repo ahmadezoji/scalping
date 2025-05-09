@@ -1,0 +1,369 @@
+import asyncio
+import matplotlib.pyplot as plt
+import aiohttp
+import logging
+from bingx import *
+from datetime import datetime, timedelta
+import numpy as np
+
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+SYMBOL = "BTC-USDT"
+INTERVAL = "1m"
+MIN = 1
+LIMIT = 100
+AMOUNT_USDT =3000  # USDT
+
+SL = -0.01 # % stop loss percentage
+TP = 0.15  # % take profit percentage
+
+# THRESHOLD_PERCENTAGE = 0.002 # Moderate Sensitivity
+# THRESHOLD_PERCENTAGE = 0.001 # High Sensitivity
+# THRESHOLD_PERCENTAGE = 0.0005 # Very High Sensitivity
+THRESHOLD_PERCENTAGE = 0.0002 
+# THRESHOLD_PERCENTAGE = 0.0001  # ultra High Sensitivity
+# THRESHOLD_PERCENTAGE = 0.001
+ATR_PERIOD = 14  # ATR period
+
+order_type = OrderType.NONE
+last_order_id = None
+ordered_price = None
+count_of_long = 1
+count_of_short = 1
+last_trade_amount = None
+
+
+def trade_amount_calculate(symbol):
+    last_price_symbol = last_price(symbol=symbol)
+    if (last_price_symbol is not None or last_price_symbol != 0.0):
+        return AMOUNT_USDT / last_price_symbol
+    return -1
+
+
+# Function to calculate moving averages
+def calculate_moving_averages(klines):
+    close_prices = np.array([float(kline['close']) for kline in klines])
+    sma5 = close_prices[-5:].mean()
+    sma8 = close_prices[-8:].mean()
+    sma13 = close_prices[-13:].mean()
+    return sma5, sma8, sma13, close_prices
+
+# Function to calculate ATR (Average True Range)
+
+
+def calculate_atr(klines, period=ATR_PERIOD):
+    high_prices = np.array([float(kline['high']) for kline in klines])
+    low_prices = np.array([float(kline['low']) for kline in klines])
+    close_prices = np.array([float(kline['close']) for kline in klines])
+
+    # Calculate the True Range (TR) and then average it over the specified period to get the ATR
+    tr_list = np.maximum(high_prices[1:] - low_prices[1:],
+                         np.maximum(np.abs(high_prices[1:] - close_prices[:-1]),
+                                    np.abs(low_prices[1:] - close_prices[:-1])))
+    atr = np.mean(tr_list[-period:])
+    return atr
+
+# Function to close the last order based on the current order type
+
+
+def close_last():
+    global order_type, last_order_id, count_of_long, count_of_short, ordered_price
+
+    if order_type == OrderType.SHORT:
+        # result = close_short(symbol=SYMBOL, quantity=0.015)
+        result = closeAllPosition(symbol=SYMBOL)
+        if result == 200:
+            order_type = OrderType.NONE
+            logger.info(f"Closed SHORT order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+            count_of_short = 1  # Reset counter for short trades
+            setLeverage(symbol=SYMBOL,side="SHORT",leverage=1)
+    elif order_type == OrderType.LONG:
+        result = closeAllPosition(symbol=SYMBOL)
+        if result == 200:
+            order_type = OrderType.NONE
+            logger.info(f"Closed LONG order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+            count_of_long = 1  # Reset counter for long trades
+            setLeverage(symbol=SYMBOL,side="LONG",leverage=1)
+
+# Function to make trading decisions with threshold and ATR checks
+
+
+def make_trade_decision(sma5, sma8, sma13, klines, close_prices):
+    global order_type, last_order_id, count_of_long, count_of_short, ordered_price, last_trade_amount
+
+    # Calculate the ATR for volatility assessment
+    atr = calculate_atr(klines)
+
+    # Calculate profit/loss percentage based on last traded price
+    if ordered_price is not None and order_type is not OrderType.NONE:
+        profit = (close_prices[-1] - ordered_price) / \
+            ordered_price  # Calculate profit
+        profit_percentage = (
+            (close_prices[-1] - ordered_price) / ordered_price) * 100
+        unrealized_pnl = profit_percentage if order_type == OrderType.LONG else - \
+            1 * profit_percentage
+
+        logger.info(f"unrealized_pnl = {
+                    unrealized_pnl} Calculated profit = {profit} ")
+
+        # Check if the trade needs to be closed based on SL
+        # if (order_type == OrderType.LONG and unrealized_pnl <= SL) or (order_type == OrderType.SHORT and unrealized_pnl >= -1 * SL):
+        if unrealized_pnl <= SL:
+            close_last()
+            logger.info(f"Closing position due to Stop Loss condition at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+            ordered_price = None  # Reset the ordered price after closing
+        # Check if the trade needs to be closed based on TP
+        # if (order_type == OrderType.LONG and profit >= TP) or (order_type == OrderType.SHORT and profit <= -1 * TP):
+        if unrealized_pnl >= TP:
+            close_last()
+            logger.info(f"Closing position due to Take Profit condition at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+            ordered_price = None  # Reset the ordered price after closing
+
+    # Check for SMA trend conditions with ATR confirmation
+    if abs(sma5 - sma8) / sma8 > THRESHOLD_PERCENTAGE and abs(sma8 - sma13) / sma13 > THRESHOLD_PERCENTAGE:
+        if sma5 > sma8 > sma13 and atr > 0.005:  # Buy signal criteria
+            if order_type == OrderType.SHORT:
+                result = closeAllPosition(symbol=SYMBOL)
+                if result == 200:
+                    order_type = OrderType.NONE
+                    logger.info(f"Closed SHORT order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+                    setLeverage(symbol=SYMBOL,side="SHORT",leverage=1)
+                    count_of_short = 1  # Reset counter for short trades
+            if count_of_long == 1:  # Ensure only one long trade at a time
+                # Confirmation: Last close price should be above SMA5
+                if close_prices[-1] > sma5:
+                    # setLeverage(symbol=SYMBOL,side="LONG",leverage=2)
+                    amount = trade_amount_calculate(symbol=SYMBOL)
+                    last_order_id, order_type, quantity = open_long(
+                        symbol=SYMBOL, quantity=amount)
+                    logger.info(f"LONG opened in this price : {close_prices[-1]} AMOUNT :{amount} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+                    count_of_long += 1
+                    # Store the entry price for profit calculation
+                    ordered_price = close_prices[-1]
+                    last_trade_amount = quantity
+                    
+
+        elif sma5 < sma8 < sma13 and atr > 0.005:  # Sell signal criteria
+            if order_type == OrderType.LONG:
+                result = closeAllPosition(symbol=SYMBOL)
+                if result == 200:
+                    order_type = OrderType.NONE
+                    logger.info(f"Closed LONG order id = {last_order_id} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+                    setLeverage(symbol=SYMBOL,side="LONG",leverage=1)
+                    count_of_long = 1  # Reset counter for long trades
+            if count_of_short == 1:  # Ensure only one short trade at a time
+                # Confirmation: Last close price should be below SMA5
+                if close_prices[-1] < sma5:
+                    # setLeverage(symbol=SYMBOL,side="SHORT",leverage=2)
+                    amount = trade_amount_calculate(symbol=SYMBOL)
+                    last_order_id, order_type, quantity = open_short(
+                        symbol=SYMBOL, quantity=amount)
+                    logger.info(f"SHORT opened in this price : {close_prices[-1]} AMOUNT :{amount} at {datetime.now().strftime(
+                        '%Y-%m-%d %H:%M:%S')}")
+                    count_of_short += 1
+                    # Store the entry price for profit calculation
+                    ordered_price = close_prices[-1]
+                    last_trade_amount = quantity
+                    # setLeverage(symbol=SYMBOL,side="SHORT",leverage=1)
+        else:
+            logger.info("No buy or sell signal met the criteria.")
+    else:
+        logger.info(
+            "No significant movement detected. Waiting for better conditions.")
+
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                past_time_ms = get_server_time() - (LIMIT * MIN * 60 * 1000)
+                klines = get_kline(
+                    symbol=SYMBOL, interval=INTERVAL, limit=LIMIT, start=past_time_ms)
+
+                klines.raise_for_status()
+                klines = klines.json().get('data', [])
+                if len(klines) == 0:
+                    return
+                klines.reverse()
+                if klines:
+                    sma5, sma8, sma13, close_prices = calculate_moving_averages(
+                        klines)
+                    logger.info(f"PRICES: {close_prices[-1]} SMA5: {
+                                sma5}, SMA8: {sma8}, SMA13: {sma13}")
+                    make_trade_decision(sma5, sma8, sma13,
+                                        klines, close_prices)
+                else:
+                    logger.warning(
+                        "No Kline data received. Skipping this iteration.")
+                await asyncio.sleep(MIN * 60)
+                # await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                logger.warning("Task was cancelled. Exiting.")
+                break
+            except Exception as e:
+                logger.exception(
+                    "Unexpected error occurred in main loop. Continuing...")
+
+
+# Backtesting function for the past two days with plotting
+def backtest(symbol, interval="1m", days=1):
+    global order_type, ordered_price, last_order_id, count_of_long, count_of_short
+
+    # Resetting trading state for backtest
+    order_type = OrderType.NONE
+    ordered_price = None
+    count_of_long = 1
+    count_of_short = 1
+    last_trade_amount = None
+    
+    # Fetch data for the past two days (2 * 24 * 60 / 1-minute interval)
+    limit = days * 5 * 60  # Number of minutes in 2 days
+    past_time_ms = get_server_time() - (limit * 60 * 1000)
+    
+    klines = get_kline(symbol=symbol, interval=interval, limit=limit, start=past_time_ms)
+    klines.raise_for_status()
+    klines = klines.json().get('data', [])
+    if len(klines) == 0:
+        logger.warning("No historical data available for backtest.")
+        return
+    
+    klines.reverse()  # Ensure klines are in ascending order
+    
+    close_prices = np.array([float(kline['close']) for kline in klines])
+    timestamps = [datetime.fromtimestamp(float(kline['time']) / 1000) for kline in klines]
+
+    # Variables to store buy/sell signal points
+    buy_signals = []
+    sell_signals = []
+
+    # Iterate over klines to simulate trading signals
+    for i in range(len(klines)):
+        # Only process if we have enough data for moving averages and ATR
+        if i >= 13:
+            sma5, sma8, sma13, _ = calculate_moving_averages(klines[:i+1])
+            atr = calculate_atr(klines[:i+1])
+
+            # Calculate unrealized PnL and make trading decisions based on backtesting logic
+            if ordered_price is not None and order_type is not OrderType.NONE:
+                profit_percentage = ((close_prices[i] - ordered_price) / ordered_price) * 100
+                unrealized_pnl = profit_percentage if order_type == OrderType.LONG else -1 * profit_percentage
+
+                # Check if we should close based on SL or TP
+                if unrealized_pnl <= SL:
+                    if order_type == OrderType.LONG:
+                        sell_signals.append((timestamps[i], close_prices[i]))
+                    elif order_type == OrderType.SHORT:
+                        buy_signals.append((timestamps[i], close_prices[i]))
+                    ordered_price = None
+                    order_type = OrderType.NONE
+                elif unrealized_pnl >= TP:
+                    if order_type == OrderType.LONG:
+                        sell_signals.append((timestamps[i], close_prices[i]))
+                    elif order_type == OrderType.SHORT:
+                        buy_signals.append((timestamps[i], close_prices[i]))
+                    ordered_price = None
+                    order_type = OrderType.NONE
+
+            # Check for buy/sell signals based on SMA and ATR criteria
+            if abs(sma5 - sma8) / sma8 > THRESHOLD_PERCENTAGE and abs(sma8 - sma13) / sma13 > THRESHOLD_PERCENTAGE:
+                if sma5 > sma8 > sma13 and atr > 0.005:
+                    if order_type != OrderType.LONG and count_of_long == 1:
+                        # Open long position
+                        buy_signals.append((timestamps[i], close_prices[i]))
+                        order_type = OrderType.LONG
+                        ordered_price = close_prices[i]
+                        count_of_long += 1
+                        count_of_short = 1
+                elif sma5 < sma8 < sma13 and atr > 0.005:
+                    if order_type != OrderType.SHORT and count_of_short == 1:
+                        # Open short position
+                        sell_signals.append((timestamps[i], close_prices[i]))
+                        order_type = OrderType.SHORT
+                        ordered_price = close_prices[i]
+                        count_of_short += 1
+                        count_of_long = 1
+
+    # Plotting the close prices and buy/sell signals
+    plt.figure(figsize=(14, 7))
+    plt.plot(timestamps, close_prices, label="Close Price", color="black")
+    
+    # Plotting buy signals
+    if buy_signals:
+        buy_times, buy_prices = zip(*buy_signals)
+        plt.scatter(buy_times, buy_prices, marker="^", color="green", label="Buy Signal", s=100)
+
+    # Plotting sell signals
+    if sell_signals:
+        sell_times, sell_prices = zip(*sell_signals)
+        plt.scatter(sell_times, sell_prices, marker="v", color="red", label="Sell Signal", s=100)
+
+    plt.xlabel("Time")
+    plt.ylabel("Price")
+    plt.title(f"{symbol} Backtest - Close Prices with Buy/Sell Signals")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    # Function to calculate moving averages for backtesting
+    # def calculate_all_smas(klines):
+    #     close_prices = [float(kline['close']) for kline in klines]
+    #     sma5 = [sum(close_prices[i:i+5]) /
+    #             5 for i in range(len(close_prices)-5+1)]
+    #     sma8 = [sum(close_prices[i:i+8]) /
+    #             8 for i in range(len(close_prices)-8+1)]
+    #     sma13 = [sum(close_prices[i:i+13]) /
+    #              13 for i in range(len(close_prices)-13+1)]
+    #     return close_prices, sma5, sma8, sma13
+
+    
+    # past_time_ms = get_server_time() - (limit * 60 * 1000)
+    # klines = get_kline(symbol=symbol, interval=interval,
+    #                    limit=limit, start=past_time_ms)
+    # klines.raise_for_status()
+    # klines = klines.json().get('data', [])
+    # klines.reverse()
+
+    # if not klines:
+    #     logger.error("No data available for backtesting.")
+    #     return
+
+    # close_prices, sma5, sma8, sma13 = calculate_all_smas(klines)
+
+    # # Plotting the results
+    # plt.figure(figsize=(14, 7))
+    # plt.plot(close_prices, label="Close Price", color="black")
+
+    # # Align SMA arrays to the corresponding close price indices
+    # plt.plot(range(4, len(close_prices)), sma5, label="SMA5", color="brown")
+    # plt.plot(range(7, len(close_prices)), sma8, label="SMA8", color="orange")
+    # plt.plot(range(12, len(close_prices)), sma13, label="SMA13", color="blue")
+
+    # # Formatting the plot
+    # plt.title(f"{symbol} Backtest - Close Prices and SMAs")
+    # plt.xlabel("Time (most recent to older)")
+    # plt.ylabel("Price")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.show()
+
+
+# Run the async loop
+if __name__ == "__main__":
+    try:
+        # asyncio.run(back_test(symbol=SYMBOL))
+        asyncio.run(main())
+        # asyncio.run(backtest(symbol=SYMBOL))
+
+    except KeyboardInterrupt:
+        logger.info("Trading bot stopped manually.")
+    except Exception as e:
+        logger.exception("Critical error. Bot stopped.")

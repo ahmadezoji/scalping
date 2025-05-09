@@ -1,0 +1,608 @@
+import time
+import logging
+from datetime import datetime, timedelta
+from binance.client import Client
+from binance.exceptions import BinanceAPIException
+import numpy as np
+import matplotlib.pyplot as plt
+from decimal import Decimal
+import threading
+from index import *
+
+
+
+# # Set up logging
+# logging.basicConfig(
+#     filename='scalping_bot.log',
+#     level=logging.INFO,
+#     format='%(asctime)s - %(message)s'
+# )
+
+logging.basicConfig(
+    level=logging.INFO,  # Set level to INFO to display info logs
+    format='%(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]  # Output logs to console
+)
+
+# Initialize Binance client
+API_KEY = '81vXiGyDU5cAgMH5PB5xHem9V9sGw6E1QaXGxyVMm79p0Gk8E7OYMf2OnSrMVWom'
+API_SECRET = 'gQWW6QW73sh9a83O4B5W6MzEmnXRxE55hsqM2Lvz1I27CtFog5EqBPI8moFIPICb'
+
+try:
+    client = Client(API_KEY, API_SECRET, testnet=False)
+    # client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
+
+except Exception as e:
+    print(f"Error during ping: {e}")
+
+# Function to calculate Simple Moving Average (SMA)
+
+
+def calculate_sma(data, window):
+    """Calculate Simple Moving Average."""
+    if len(data) < window:
+        return np.nan  # Not enough data
+    return np.mean(data[-window:])
+
+
+def calculate_rsi_all(prices, window=14):
+    """Calculate Relative Strength Index."""
+    if len(prices) < window:
+        return np.nan  # Not enough data
+    deltas = np.diff(prices)
+    seed = deltas[:window]
+    up = seed[seed >= 0].sum() / window
+    down = -seed[seed < 0].sum() / window
+    rs = up / down if down != 0 else 0
+    rsi = np.zeros_like(prices)
+    rsi[:window] = 50  # Initialize RSI to 50
+
+    for i in range(window, len(prices)):
+        delta = deltas[i - 1] if i > 0 else 0
+        gain = max(delta, 0)
+        loss = -min(delta, 0)
+        up = (up * (window - 1) + gain) / window
+        down = (down * (window - 1) + loss) / window
+        rs = up / down if down != 0 else 0
+        rsi[i] = 100 - (100 / (1 + rs))
+
+    return rsi
+# Function to calculate RSI
+
+
+def calculate_rsi(prices, window=14):
+    """Calculate Relative Strength Index."""
+    if len(prices) < window:
+        return np.nan  # Not enough data
+    deltas = np.diff(prices)
+    seed = deltas[:window]
+    up = seed[seed >= 0].sum() / window
+    down = -seed[seed < 0].sum() / window
+    rs = up / down if down != 0 else 0
+    rsi = np.zeros_like(prices)
+    rsi[:window] = 50  # Initialize RSI to 50
+
+    for i in range(window, len(prices)):
+        delta = deltas[i - 1] if i > 0 else 0
+        gain = max(delta, 0)
+        loss = -min(delta, 0)
+        up = (up * (window - 1) + gain) / window
+        down = (down * (window - 1) + loss) / window
+        rs = up / down if down != 0 else 0
+        rsi[i] = 100 - (100 / (1 + rs))
+
+    return rsi[-1]  # Return the latest RSI value
+
+
+def get_klines_with_start(symbol, interval, limit=100, start_time=None, end_time=None):
+    try:
+        klines = client.get_klines(
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+            startTime=start_time,
+            endTime=end_time
+        )
+
+        # Ensure klines contains the expected data structure (Closing price and timestamp)
+        return [(float(kline[4]), int(kline[0])) for kline in klines]
+    except Exception as e:
+        logging.error(f"Error fetching klines: {e}")
+        return []
+
+
+def get_klines(symbol, interval, limit=100):
+    try:
+        klines = client.get_klines(
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+        )
+
+        # Ensure klines contains the expected data structure (Closing price and timestamp)
+        return [(float(kline[4]), int(kline[0])) for kline in klines]
+    except Exception as e:
+        logging.error(f"Error fetching klines: {e}")
+        return []
+
+
+def check_sl_tp(position, symbol, tp_price, sl_price, open_price, usdt_amount):
+    """Thread function to check if SL or TP is hit."""
+    global current_position, open_trade_thread, current_quantity
+    while current_position:
+        try:
+            # Fetch the current price
+            klines = get_klines(symbol, '1m', limit=1)
+
+            prices = [kline[0] for kline in klines]
+            current_price = prices[-1]
+            # Calculate and log unrealized PnL
+            unrealized_pnl = calculate_unrealized_pnl(
+                position, open_price, current_price, usdt_amount)
+            logging.info(f"Unrealized PnL for position {position} on {symbol}: {unrealized_pnl} USDT")
+
+            if position == "LONG":
+                if current_price >= tp_price:  # Take Profit
+                    log_trade(position, 'CLOSE (TP)', current_price)
+                    close_futures_position(symbol, 'LONG', current_quantity)
+                    current_position = None
+                    break
+                elif current_price <= sl_price:  # Stop Loss
+                    log_trade(position, 'CLOSE (SL)', current_price)
+                    close_futures_position(symbol, 'LONG', current_quantity)
+                    current_position = None
+                    break
+
+            elif position == "SHORT":
+                if current_price <= tp_price:  # Take Profit
+                    log_trade(position, 'CLOSE (TP)', current_price)
+                    close_futures_position(symbol, 'SHORT', current_quantity)
+                    current_position = None
+                    break
+                elif current_price >= sl_price:  # Stop Loss
+                    log_trade(position, 'CLOSE (SL)', current_price)
+                    close_futures_position(symbol, 'SHORT', current_quantity)
+                    current_position = None
+                    break
+
+            time.sleep(10)  # Check every 10 seconds
+
+        except Exception as e:
+            logging.error(f"Error in SL/TP thread: {e}")
+            break
+
+
+def scalping_bot_periodically(symbol, interval='1m', timeInterval=1, limit=500, usdt_amount=200, tp_percentage=0.02, sl_percentage=0.01, rsi_buy_threshold=40, rsi_sell_threshold=60,):
+    """Scalping bot using RSI and SMA strategy with real orders."""
+    global current_position, current_quantity, open_trade_thread
+    current_position = None  # None, 'LONG', or 'SHORT'
+    current_quantity = 0.0
+    open_price = None
+
+    while True:
+        try:
+            # Fetch data
+            klines = get_klines(symbol, interval, limit=limit)
+            if len(klines) < 14:
+                logging.warning("Not enough data to calculate indicators.")
+                time.sleep(60)
+                continue
+
+            prices = [kline[0] for kline in klines]  # Extract close prices
+            timestamps = [datetime.fromtimestamp(
+                kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
+
+            # Calculate indicators
+            if len(prices) >= 14:
+                rsi = calculate_rsi(prices, 14)
+                sma_short = calculate_sma(prices, 5)
+                sma_long = calculate_sma(prices, 13)
+
+                logging.info(f"{timestamps[-1]} - RSI: {rsi:.5f}, SMA Short (5): {
+                             sma_short:.5f}, SMA Long (13): {sma_long:.5f}")
+
+                # Generate trading signal
+                signal = None
+                if (sma_short - sma_long) > 1e-6 and rsi < rsi_buy_threshold:
+                    signal = "BUY"
+                elif (sma_long - sma_short) > 1e-6 and rsi > rsi_sell_threshold:
+                    signal = "SELL"
+
+            # Process the signal
+            if signal == "BUY" and current_position != "LONG":
+                if execute_trade(symbol, "BUY", usdt_amount):
+                    open_price = prices[-1]
+                    atr_value = calculate_atr(prices, window=14)
+                    sl_tp = calculate_sl_tp_with_atr(
+                        prices[-1], 'LONG', atr_value, multiplier=1.5)
+                    # open_trade_thread = threading.Thread(
+                    #     target=check_sl_tp,
+                    #     args=('LONG', symbol, sl_tp['TP'],
+                    #           sl_tp['SL'], open_price, usdt_amount)
+                    # )
+                    # open_trade_thread.start()
+                  
+                    log_trade('LONG', 'OPEN', open_price, 0.0, timestamps[-1])
+
+            elif signal == "SELL" and current_position != "SHORT":
+                if execute_trade(symbol, "SELL", usdt_amount):
+                    open_price = prices[-1]
+                    atr_value = calculate_atr(prices, window=14)
+                    sl_tp = calculate_sl_tp_with_atr(
+                        prices[-1], 'LONG', atr_value, multiplier=1.5)
+                    # open_trade_thread = threading.Thread(
+                    #     target=check_sl_tp,
+                    #     args=('SHORT', symbol,
+                    #           sl_tp['TP'], sl_tp['SL'], open_price, usdt_amount)
+                    # )
+                    # open_trade_thread.start()
+                    
+                    log_trade('SHORT', 'OPEN', open_price, 0.0, timestamps[-1])
+
+            time.sleep(timeInterval*60)
+
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
+            print(f"Error: {e}")
+            time.sleep(60)
+
+
+def back_test_via_pnl(symbol, interval='1m', limit=100, usdt_amount=200,
+                      rsi_buy_threshold=40, rsi_sell_threshold=60,
+                      tp_percentage=0.02, sl_percentage=0.01):
+    """Backtest scalping strategy with TP and SL logic included."""
+
+    try:
+        current_position = None  # None, 'LONG', or 'SHORT'
+        open_price = None
+        total_pnl = 0  # Total PnL across all trades
+        stop_loss_price = None
+        take_profit_price = None
+
+        # Fetch historical data
+        klines = get_klines(symbol, interval, limit)
+        if len(klines) < 14:
+            logging.warning("Not enough data to perform backtest.")
+            return
+
+        prices = [kline[0] for kline in klines]  # Extract close prices
+        timestamps = [datetime.fromtimestamp(
+            kline[1] / 1000).strftime('%Y-%m-%d %H:%M:%S') for kline in klines]
+
+        # Calculate indicators
+        rsi = calculate_rsi_all(prices, 14)
+        sma_short = [calculate_sma(
+            prices[max(0, i - 4):i + 1], 5) if i >= 4 else np.nan for i in range(len(prices))]
+        sma_long = [calculate_sma(prices[max(0, i - 12):i + 1], 13)
+                    if i >= 12 else np.nan for i in range(len(prices))]
+
+        for i in range(14, len(prices)):
+            last_rsi = rsi[i]
+            current_price = prices[i]
+            signal = None
+
+            # Generate trading signal
+            if sma_short[i] > sma_long[i] and last_rsi < rsi_buy_threshold:
+                signal = "BUY"
+            elif sma_short[i] < sma_long[i] and last_rsi > rsi_sell_threshold:
+                signal = "SELL"
+
+            # Check TP and SL conditions
+            if current_position == "LONG":
+                if current_price >= take_profit_price:  # Take Profit
+                    realized_pnl = (current_price - open_price) / \
+                        open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('LONG', 'CLOSE (TP)', current_price,
+                              realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
+                elif current_price <= stop_loss_price:  # Stop Loss
+                    realized_pnl = (current_price - open_price) / \
+                        open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('LONG', 'CLOSE (SL)', current_price,
+                              realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
+
+            elif current_position == "SHORT":
+                if current_price <= take_profit_price:  # Take Profit
+                    realized_pnl = (open_price - current_price) / \
+                        open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('SHORT', 'CLOSE (TP)', current_price,
+                              realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
+                elif current_price >= stop_loss_price:  # Stop Loss
+                    realized_pnl = (open_price - current_price) / \
+                        open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('SHORT', 'CLOSE (SL)', current_price,
+                              realized_pnl, timestamps[i])
+                    current_position = None
+                    open_price = None
+                    stop_loss_price = None
+                    take_profit_price = None
+
+            # Process the signal
+            if signal == "BUY" and current_position != "LONG":
+                if current_position == "SHORT":  # Close SHORT position
+                    realized_pnl = (open_price - current_price) / \
+                        open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('SHORT', 'CLOSE', current_price,
+                              realized_pnl, timestamps[i])
+
+                current_position = "LONG"
+                open_price = current_price
+
+                atr_value = calculate_atr(prices, window=14)
+                sl_tp = calculate_sl_tp_with_atr(
+                    open_price, 'LONG', atr_value, multiplier=1.5)
+
+                # sl_tp = calculate_sl_tp(
+                #     open_price, 'LONG', tp_percentage, sl_percentage)
+                stop_loss_price = sl_tp['SL']
+                take_profit_price = sl_tp['TP']
+                log_trade('LONG', 'OPEN', current_price, 0.0, timestamps[i])
+
+            elif signal == "SELL" and current_position != "SHORT":
+                if current_position == "LONG":  # Close LONG position
+                    realized_pnl = (current_price - open_price) / \
+                        open_price * usdt_amount
+                    total_pnl += realized_pnl
+                    log_trade('LONG', 'CLOSE', current_price,
+                              realized_pnl, timestamps[i])
+
+                current_position = "SHORT"
+                open_price = current_price
+                atr_value = calculate_atr(prices, window=14)
+                sl_tp = calculate_sl_tp_with_atr(
+                    open_price, 'SHORT', atr_value, multiplier=1.5)
+                # sl_tp = calculate_sl_tp(
+                # open_price, 'SHORT', tp_percentage, sl_percentage)
+                stop_loss_price = sl_tp['SL']
+                take_profit_price = sl_tp['TP']
+                log_trade('SHORT', 'OPEN', current_price, 0.0, timestamps[i])
+
+            # Calculate and log unrealized PnL
+            if current_position:
+                unrealized_pnl = calculate_unrealized_pnl(
+                    current_position, open_price, current_price, usdt_amount)
+                log_unrealized_pnl(
+                    current_position, unrealized_pnl, timestamps[i])
+
+        logging.info(f"Backtest Complete. Total PnL: {total_pnl:.5f}")
+    except Exception as e:
+        print(f"Error fetching or plotting klines: {e}")
+
+
+
+
+
+
+
+
+
+def execute_trade(symbol, signal, usdt_amount=10):
+    """Execute a trade based on the signal."""
+    global current_position, current_quantity
+
+    # Determine quantity of BTC to trade (using the last market price)
+    try:
+        if signal == "BUY":
+            if current_position == "LONG":
+                logging.info(
+                    "Already in a BUY position, skipping new BUY signal.")
+                return False
+            else:
+                order = place_order(symbol, side="BUY",
+                                    usdt_amount=usdt_amount)
+                if order:
+                    current_position = "LONG"
+                return True
+
+        elif signal == "SELL":
+            if current_position == "SHORT":
+                logging.info(
+                    "Already in a SELL position, skipping new SELL signal.")
+                return False
+            else:
+                order = place_order(symbol, side="SELL",
+                                    usdt_amount=usdt_amount)
+                if order:
+                    current_position = "SHORT"
+                return True
+
+    except BinanceAPIException as e:
+        logging.error(f"Binance API Exception: {e}")
+        print(f"Error: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        print(f"Error: {e}")
+
+
+def log_trade(position, action, price, pnl=None, timestamp=None):
+    """Logs trade actions for opening and closing positions."""
+    timestamp = timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    pnl_info = f", Realized PnL: {pnl:.5f}" if pnl is not None else ""
+    message = f"{timestamp} - {action} {position} at {price:.5f}{pnl_info}"
+
+    logging.info(message)
+
+
+def log_unrealized_pnl(position, unrealized_pnl, timestamp):
+    """Logs the unrealized PnL for open positions."""
+    if position in ['LONG', 'SHORT']:
+        logging.info(
+            f"{timestamp} - {position} Unrealized PnL: {unrealized_pnl:.5f}")
+
+
+def calculate_unrealized_pnl(current_position, open_price, current_price, usdt_amount):
+    """Calculates the unrealized PnL for the current position."""
+    if current_position == 'LONG':
+        return (current_price - open_price) / open_price * usdt_amount
+    elif current_position == 'SHORT':
+        return (open_price - current_price) / open_price * usdt_amount
+    return 0
+
+
+def fetch_and_plot_klines(symbol, interval, limit):
+    """Fetch kline data from Binance and plot close prices."""
+    try:
+        # Fetch klines
+        klines = client.get_klines(
+            symbol=symbol, interval=interval, limit=limit)
+
+        # Extract close prices and timestamps
+        close_prices = [float(kline[4]) for kline in klines]
+        timestamps = [datetime.fromtimestamp(
+            int(kline[0]) / 1000) for kline in klines]
+
+        # Plot close prices
+        plt.figure(figsize=(12, 6))
+        plt.plot(timestamps, close_prices, label='Close Price', color='blue')
+        plt.title(f"{symbol} Close Prices ({interval} Interval)")
+        plt.xlabel("Time")
+        plt.ylabel("Close Price")
+        plt.grid()
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+    except Exception as e:
+        print(f"Error fetching or plotting klines: {e}")
+
+
+def get_notional_min(symbol):
+    """Fetch NOTIONAL filter for the given symbol."""
+    exchange_info = client.get_exchange_info()
+    for symbol_info in exchange_info['symbols']:
+        if symbol_info['symbol'] == symbol:
+            for filter_info in symbol_info['filters']:
+                if filter_info['filterType'] == 'NOTIONAL':
+                    return float(filter_info['minNotional'])
+    raise Exception(f"NOTIONAL filter not found for symbol {symbol}")
+
+
+def get_lot_size(symbol):
+    """Fetch LOT_SIZE filter for the given symbol."""
+    exchange_info = client.get_exchange_info()
+    for symbol_info in exchange_info['symbols']:
+        if symbol_info['symbol'] == symbol:
+            for filter_info in symbol_info['filters']:
+                if filter_info['filterType'] == 'LOT_SIZE':
+                    return (
+                        float(filter_info['minQty']),
+                        float(filter_info['maxQty']),
+                        float(filter_info['stepSize'])
+                    )
+    raise Exception(f"LOT_SIZE not found for symbol {symbol}")
+
+
+def adjust_quantity(quantity, step_size):
+    """Adjust quantity to the nearest step size and format to the allowed precision."""
+    precision = len(str(step_size).split(
+        '.')[-1])  # Determine the number of decimal places
+    return round(quantity, precision)
+
+
+def calculate_atr(prices, window=14):
+    """Calculate the Average True Range (ATR)."""
+    tr = [abs(prices[i] - prices[i-1]) for i in range(1, len(prices))]
+    return np.mean(tr[-window:])
+
+
+def calculate_sl_tp_with_atr(entry_price, direction='LONG', atr_value=0.01, multiplier=1.5):
+    """
+    Calculate TP and SL dynamically using ATR.
+    Args:
+        entry_price (float): The entry price of the trade.
+        direction (str): 'LONG' or 'SHORT'.
+        atr_value (float): Average True Range value.
+        multiplier (float): Multiplier for ATR to calculate TP/SL.
+
+    Returns:
+        dict: A dictionary containing TP and SL prices.
+    """
+    atr_target = atr_value * multiplier
+
+    if direction.upper() == 'LONG':
+        tp_price = entry_price + atr_target
+        sl_price = entry_price - atr_target
+    elif direction.upper() == 'SHORT':
+        tp_price = entry_price - atr_target
+        sl_price = entry_price + atr_target
+    else:
+        raise ValueError("Invalid direction. Must be 'LONG' or 'SHORT'.")
+
+    return {'TP': round(tp_price, 6), 'SL': round(sl_price, 6)}
+
+
+def calculate_sl_tp(entry_price, direction='LONG', tp_percentage=0.02, sl_percentage=0.01):
+    """
+    Calculate TP and SL based on entry price and percentage values.
+
+    Args:
+        entry_price (float): The entry price of the trade.
+        direction (str): 'LONG' or 'SHORT'.
+        tp_percentage (float): Percentage for take profit (e.g., 0.02 for 2%).
+        sl_percentage (float): Percentage for stop loss (e.g., 0.01 for 1%).
+
+    Returns:
+        dict: A dictionary containing TP and SL prices.
+    """
+    if direction.upper() == 'LONG':
+        tp_price = entry_price * (1 + tp_percentage)
+        sl_price = entry_price * (1 - sl_percentage)
+    elif direction.upper() == 'SHORT':
+        tp_price = entry_price * (1 - tp_percentage)
+        sl_price = entry_price * (1 + sl_percentage)
+    else:
+        raise ValueError("Invalid direction. Must be 'LONG' or 'SHORT'.")
+
+    return {
+        'TP': round(tp_price, 2),
+        'SL': round(sl_price, 2)
+    }
+
+
+# Run the bot
+if __name__ == "__main__":
+    # back_test(symbol, interval, limit)
+    # fetch_and_plot_klines(symbol=symbol, interval=interval, limit=limit)
+    # scalping_bot(symbol,interval,usdt_amount)
+    usdt_amount = 12
+    direction = 'LONG'
+    symbol = 'DOGEUSDT'
+    interval = '1m'
+    timeInterval = 1
+    limit = 100
+
+    tp_percentage = 0.02
+    sl_percentage = 0.01
+
+    rsi_buy_threshold = 44
+    rsi_sell_threshold = 56
+
+    scalping_bot_periodically(symbol=symbol, interval=interval, timeInterval=timeInterval, limit=limit, usdt_amount=usdt_amount, tp_percentage=tp_percentage,
+                 sl_percentage=sl_percentage, rsi_buy_threshold=rsi_buy_threshold, rsi_sell_threshold=rsi_sell_threshold)
+
+    # order = place_order(symbol, side="BUY", usdt_amount=usdt_amount)
+    # back_test_via_pnl(symbol=symbol,
+    #                   limit=limit,
+    #                   interval=interval,
+    #                   usdt_amount=usdt_amount,
+    #                   rsi_buy_threshold=rsi_buy_threshold,
+    #                   rsi_sell_threshold=rsi_sell_threshold,
+    #                   tp_percentage=tp_percentage,
+    #                   sl_percentage=sl_percentage)

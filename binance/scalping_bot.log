@@ -1,0 +1,4 @@
+2025-01-04 09:36:07,836 - Starting VWAP bot.
+2025-01-04 09:36:08,197 - Message sent to Telegram successfully.
+2025-01-04 09:36:08,215 - Error fetching klines: name 'client' is not defined
+2025-01-04 09:36:08,223 - No data retrieved from Binance API.

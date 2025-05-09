@@ -1,2 +1,5 @@
-asyncio
+python-binance
 requests
+pandas
+asyncio
+numpy
