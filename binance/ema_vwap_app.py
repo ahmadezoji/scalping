@@ -114,7 +114,8 @@ async def strategy_loop():
             entry_quantity = balance / entry_price
             # OPEN ORDER: client.futures_create_order(...)
             logging.info(f"OPEN {signal} | Entry: {entry_price} | USDT: {balance:.2f} | Qty: {entry_quantity:.5f} | Time: {entry_time}")
-
+            
+        logging.info(f"Strategy loop health check | Current Position: {current_position} | Time: {datetime.now()}")
         await asyncio.sleep(SLEEP_MINUTES * 60)
 
 
