@@ -22,10 +22,10 @@ STRATEGY = config["STRATEGY"]
 SYMBOL = TRADING.get("SYMBOL", "BTCUSDT")
 TFRAME = TRADING.get("trade_interval", "5m")
 ENTRY_USDT = float(TRADING.get("entry_usdt", 100))
-TP_PCT = float(TRADING.get("tp_percentage", 0.8))
-SL_PCT = float(TRADING.get("sl_percentage", 0.8))
-SLEEP_MINUTES = int(TRADING.get("sleep_time", 5))
-TP_SL_INTERVAL = int(TRADING.get("tp_sl_check_interval", 10))
+TP_PCT = float(TRADING.get("tp_percentage", 0.3))
+SL_PCT = float(TRADING.get("sl_percentage", 0.3))
+SLEEP_MINUTES = int(TRADING.get("sleep_time", 1))
+TP_SL_INTERVAL = int(TRADING.get("tp_sl_check_interval", 5))
 
 EMA_SPAN = int(STRATEGY.get("ema_span", 21))
 VWAP_BUFFER = float(STRATEGY.get("vwap_buffer", 0.001))
@@ -36,28 +36,32 @@ STOCH_OVERSOLD = int(STRATEGY.get("stoch_k_oversold", 30))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
-client = Client("", "", testnet=False)
+client = Client(config['API']['API_KEY'], config['API']['API_SECRET'], testnet=False)
 
-# Global state for the position
+# Global state
 current_position = None
 entry_price = 0
 entry_time = None
 balance = ENTRY_USDT
 entry_quantity = 0
 
-
 def fetch_latest_data(symbol: str, interval: str, limit=20):
-    klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-    df = pd.DataFrame(klines, columns=[
-        'timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time',
-        'quote_volume', 'trades_count', 'taker_buy_volume', 'taker_buy_quote_volume', 'ignore'])
-    for col in ['open', 'high', 'low', 'close', 'volume']:
-        df[col] = df[col].astype(float)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    return df
-
+    try:
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        df = pd.DataFrame(klines, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time',
+            'quote_volume', 'trades_count', 'taker_buy_volume', 'taker_buy_quote_volume', 'ignore'])
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = df[col].astype(float)
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
+    except Exception as e:
+        logging.error(f"❌ Error fetching data: {e}")
+        return pd.DataFrame()
 
 def generate_signal(df):
+    if df.empty or 'vwap' not in df.columns:
+        return None
     row = df.iloc[-1]
     price = row['close']
     if (price > row['vwap'] * (1 - VWAP_BUFFER) and row['stoch_k'] < STOCH_OVERBOUGHT and
@@ -68,43 +72,43 @@ def generate_signal(df):
         return 'SHORT'
     return None
 
-
 async def tp_sl_monitor():
     global current_position, entry_price, entry_time, balance, entry_quantity
     while True:
-
         await asyncio.sleep(TP_SL_INTERVAL)
         if current_position is None:
             continue
 
         df = fetch_latest_data(SYMBOL, TFRAME, limit=2)
-        current_price = df['close'].iloc[-1]
+        if df.empty:
+            continue
 
-        pnl_pct = ((current_price - entry_price) / entry_price) * 100 if current_position == 'LONG' else ((entry_price - current_price) / entry_price) * 100
+        current_price = df['close'].iloc[-1]
+        pnl_pct = ((current_price - entry_price) / entry_price) * 100 if current_position == 'LONG' \
+            else ((entry_price - current_price) / entry_price) * 100
         profit = balance * pnl_pct / 100
 
         print(f"Current Price: {current_price} | PnL %: {pnl_pct:.2f} | Profit: {profit:.2f} USDT")
 
         if pnl_pct >= TP_PCT:
-            # Simulated take profit
             logging.info(f"TP HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT | Time: {datetime.now()}")
-            # CLOSE ORDER: client.futures_create_order(...)
-            current_position = None
-            balance += profit
-        elif pnl_pct <= -SL_PCT:
-            # Simulated stop loss
-            logging.info(f"SL HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Loss: {profit:.2f} USDT | Time: {datetime.now()}")
-            # CLOSE ORDER: client.futures_create_order(...)
             current_position = None
             balance += profit
 
+        elif pnl_pct <= -SL_PCT:
+            logging.info(f"SL HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Loss: {profit:.2f} USDT | Time: {datetime.now()}")
+            current_position = None
+            balance += profit
 
 async def strategy_loop():
     global current_position, entry_price, entry_time, balance, entry_quantity
     while True:
         df = fetch_latest_data(SYMBOL, TFRAME, limit=20)
-        df = calculate_indicators(df, ema_span=EMA_SPAN)
+        if df.empty:
+            await asyncio.sleep(SLEEP_MINUTES * 60)
+            continue
 
+        df = calculate_indicators(df, ema_span=EMA_SPAN)
         signal = generate_signal(df)
 
         if current_position is None and signal:
@@ -112,12 +116,10 @@ async def strategy_loop():
             entry_time = df['timestamp'].iloc[-1]
             current_position = signal
             entry_quantity = balance / entry_price
-            # OPEN ORDER: client.futures_create_order(...)
             logging.info(f"OPEN {signal} | Entry: {entry_price} | USDT: {balance:.2f} | Qty: {entry_quantity:.5f} | Time: {entry_time}")
-            
+
         logging.info(f"Strategy loop health check | Current Position: {current_position} | Time: {datetime.now()}")
         await asyncio.sleep(SLEEP_MINUTES * 60)
-
 
 async def main():
     logging.info("Starting backtest simulation loop")
@@ -126,6 +128,8 @@ async def main():
         tp_sl_monitor()
     )
 
-
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logging.error(f"🔥 Bot crashed with error: {e}")
