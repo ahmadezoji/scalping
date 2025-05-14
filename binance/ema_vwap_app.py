@@ -36,7 +36,8 @@ STOCH_OVERSOLD = int(STRATEGY.get("stoch_k_oversold", 30))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
-client = Client(config['API']['API_KEY'], config['API']['API_SECRET'], testnet=False)
+client = Client(config['API']['API_KEY'], config['API']
+                ['API_SECRET'], testnet=False)
 
 # Global state
 current_position = None
@@ -45,9 +46,11 @@ entry_time = None
 balance = ENTRY_USDT
 entry_quantity = 0
 
+
 def fetch_latest_data(symbol: str, interval: str, limit=20):
     try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        klines = client.get_klines(
+            symbol=symbol, interval=interval, limit=limit)
         df = pd.DataFrame(klines, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time',
             'quote_volume', 'trades_count', 'taker_buy_volume', 'taker_buy_quote_volume', 'ignore'])
@@ -59,18 +62,33 @@ def fetch_latest_data(symbol: str, interval: str, limit=20):
         logging.error(f"❌ Error fetching data: {e}")
         return pd.DataFrame()
 
+
 def generate_signal(df):
     if df.empty or 'vwap' not in df.columns:
         return None
     row = df.iloc[-1]
     price = row['close']
-    if (price > row['vwap'] * (1 - VWAP_BUFFER) and row['stoch_k'] < STOCH_OVERBOUGHT and
-            row['rsi'] > RSI_GATE and price > row['ema_trend']):
+
+    # Momentum filter
+    roc = (price - df['close'].iloc[-5]) / df['close'].iloc[-5] * 100
+    if abs(price - row['vwap']) < row['atr'] * 0.25:
+        return None
+
+    if (price > row['vwap'] * (1 - VWAP_BUFFER) and
+        row['stoch_k'] < STOCH_OVERBOUGHT and
+        row['rsi'] > RSI_GATE and
+        price > row['ema_trend'] and
+            roc > 0):
         return 'LONG'
-    elif (price < row['vwap'] * (1 + VWAP_BUFFER) and row['stoch_k'] > STOCH_OVERSOLD and
-            row['rsi'] < (100 - RSI_GATE) and price < row['ema_trend']):
+
+    elif (price < row['vwap'] * (1 + VWAP_BUFFER) and
+          row['stoch_k'] > STOCH_OVERSOLD and
+          row['rsi'] < (100 - RSI_GATE) and
+          price < row['ema_trend'] and
+          roc < 0):
         return 'SHORT'
     return None
+
 
 async def tp_sl_monitor():
     global current_position, entry_price, entry_time, balance, entry_quantity
@@ -88,17 +106,27 @@ async def tp_sl_monitor():
             else ((entry_price - current_price) / entry_price) * 100
         profit = balance * pnl_pct / 100
 
-        print(f"Current Price: {current_price} | PnL %: {pnl_pct:.2f} | Profit: {profit:.2f} USDT")
+        print(
+            f"Current Price: {current_price} | PnL %: {pnl_pct:.2f} | Profit: {profit:.2f} USDT")
 
         if pnl_pct >= TP_PCT:
             logging.info(f"TP HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT | Time: {datetime.now()}")
-            current_position = None
             balance += profit
+            current_position = None
+
 
         elif pnl_pct <= -SL_PCT:
             logging.info(f"SL HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Loss: {profit:.2f} USDT | Time: {datetime.now()}")
-            current_position = None
             balance += profit
+            current_position = None
+
+def apply_htf_filter(df, symbol, interval='1h'):
+    higher_df = fetch_latest_data(symbol, interval, limit=50)
+    if higher_df.empty:
+        return False
+    higher_df['ema_trend_1h'] = higher_df['close'].ewm(span=21).mean()
+    trend = higher_df['ema_trend_1h'].iloc[-1] - higher_df['ema_trend_1h'].iloc[-2]
+    return trend
 
 async def strategy_loop():
     global current_position, entry_price, entry_time, balance, entry_quantity
@@ -111,15 +139,25 @@ async def strategy_loop():
         df = calculate_indicators(df, ema_span=EMA_SPAN)
         signal = generate_signal(df)
 
+        if STRATEGY.getboolean('htf_filter'):
+            trend = apply_htf_filter(df, SYMBOL)
+            if signal == 'LONG' and trend < 0:
+                signal = None
+            elif signal == 'SHORT' and trend > 0:
+                signal = None
+
         if current_position is None and signal:
             entry_price = df['close'].iloc[-1]
             entry_time = df['timestamp'].iloc[-1]
             current_position = signal
             entry_quantity = balance / entry_price
-            logging.info(f"OPEN {signal} | Entry: {entry_price} | USDT: {balance:.2f} | Qty: {entry_quantity:.5f} | Time: {entry_time}")
+            logging.info(
+                f"OPEN {signal} | Entry: {entry_price} | USDT: {balance:.2f} | Qty: {entry_quantity:.5f} | Time: {entry_time}")
 
-        logging.info(f"Strategy loop health check | Current Position: {current_position} | Time: {datetime.now()}")
+        logging.info(
+            f"Strategy loop health check | Current Position: {current_position} | Time: {datetime.now()}")
         await asyncio.sleep(SLEEP_MINUTES * 60)
+
 
 async def main():
     logging.info("Starting backtest simulation loop")
