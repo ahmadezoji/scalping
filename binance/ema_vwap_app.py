@@ -69,16 +69,20 @@ def generate_signal(df):
     row = df.iloc[-1]
     price = row['close']
 
-    # Momentum filter
     roc = (price - df['close'].iloc[-5]) / df['close'].iloc[-5] * 100
     if abs(price - row['vwap']) < row['atr'] * 0.25:
         return None
+
+    if STRATEGY.getboolean('volume_filter_enabled'):
+        avg_volume = df['volume'].rolling(10).mean().iloc[-1]
+        if row['volume'] < avg_volume:
+            return None
 
     if (price > row['vwap'] * (1 - VWAP_BUFFER) and
         row['stoch_k'] < STOCH_OVERBOUGHT and
         row['rsi'] > RSI_GATE and
         price > row['ema_trend'] and
-            roc > 0):
+        roc > 0):
         return 'LONG'
 
     elif (price < row['vwap'] * (1 + VWAP_BUFFER) and
@@ -108,17 +112,32 @@ async def tp_sl_monitor():
 
         print(
             f"Current Price: {current_price} | PnL %: {pnl_pct:.2f} | Profit: {profit:.2f} USDT")
+        
+        
+        if pnl_pct >= STRATEGY.getfloat('break_even_threshold') and not moved_to_be:
+            entry_price = current_price
+            moved_to_be = True
+            logging.info(f"Moved SL to break-even for {current_position} at {entry_price}")
 
         if pnl_pct >= TP_PCT:
-            logging.info(f"TP HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT | Time: {datetime.now()}")
-            balance += profit
-            current_position = None
-
+            if STRATEGY.getboolean('trailing_tp_enabled'):
+                # Implement trailing stop logic here based on profit range
+                trailing_price = current_price - 0.003 * current_price if current_position == 'LONG' else current_price + 0.003 * current_price
+                if (current_position == 'LONG' and current_price < trailing_price) or \
+                (current_position == 'SHORT' and current_price > trailing_price):
+                    logging.info(f"TRAILING TP EXIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT")
+                    balance += profit
+                    current_position = None
+            else:
+                logging.info(f"TP HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT")
+                balance += profit
+                current_position = None
 
         elif pnl_pct <= -SL_PCT:
-            logging.info(f"SL HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Loss: {profit:.2f} USDT | Time: {datetime.now()}")
+            logging.info(f"SL HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Loss: {profit:.2f} USDT")
             balance += profit
             current_position = None
+            last_sl_time = datetime.now()
 
 def apply_htf_filter(df, symbol, interval='1h'):
     higher_df = fetch_latest_data(symbol, interval, limit=50)
