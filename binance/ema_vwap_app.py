@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 from ema_vwap import calculate_indicators
+from telegram import send_telegram_message  # Import the function to send Telegram messages
 
 # Load config
 CFG_FILE = Path("config.ini")
@@ -126,15 +127,24 @@ async def tp_sl_monitor():
                 if (current_position == 'LONG' and current_price < trailing_price) or \
                 (current_position == 'SHORT' and current_price > trailing_price):
                     logging.info(f"TRAILING TP EXIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT")
+                    send_telegram_message(
+                        f"TRAILING TP EXIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT | Time: {datetime.now()}"
+                    )
                     balance += profit
                     current_position = None
             else:
                 logging.info(f"TP HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT")
+                send_telegram_message(
+                    f"TP HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT | Time: {datetime.now()}"
+                )
                 balance += profit
                 current_position = None
 
         elif pnl_pct <= -SL_PCT:
             logging.info(f"SL HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Loss: {profit:.2f} USDT")
+            send_telegram_message(
+                f"SL HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Loss: {profit:.2f} USDT | Time: {datetime.now()}"
+            )
             balance += profit
             current_position = None
             last_sl_time = datetime.now()
