@@ -111,9 +111,7 @@ async def tp_sl_monitor():
             else ((entry_price - current_price) / entry_price) * 100
         profit = balance * pnl_pct / 100
 
-        print(
-            f"Current Price: {current_price} | PnL %: {pnl_pct:.2f} | Profit: {profit:.2f} USDT")
-        
+    
         
         if pnl_pct >= STRATEGY.getfloat('break_even_threshold') and not moved_to_be:
             entry_price = current_price
@@ -183,8 +181,7 @@ async def strategy_loop():
             logging.info(
                 f"OPEN {signal} | Entry: {entry_price} | USDT: {balance:.2f} | Qty: {entry_quantity:.5f} | Time: {entry_time}")
 
-        logging.info(
-            f"Strategy loop health check | Current Position: {current_position} | Time: {datetime.now()}")
+       
         await asyncio.sleep(SLEEP_MINUTES * 60)
 
 
