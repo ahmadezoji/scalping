@@ -97,6 +97,7 @@ def generate_signal(df):
 
 async def tp_sl_monitor():
     global current_position, entry_price, entry_time, balance, entry_quantity
+    moved_to_be = False 
     while True:
         await asyncio.sleep(TP_SL_INTERVAL)
         if current_position is None:
@@ -130,6 +131,7 @@ async def tp_sl_monitor():
                     )
                     balance += profit
                     current_position = None
+                    moved_to_be = False 
             else:
                 logging.info(f"TP HIT | {current_position} | Exit: {current_price} | Entry: {entry_price} | Profit: {profit:.2f} USDT")
                 send_telegram_message(
@@ -146,6 +148,7 @@ async def tp_sl_monitor():
             balance += profit
             current_position = None
             last_sl_time = datetime.now()
+            moved_to_be = False 
 
 def apply_htf_filter(df, symbol, interval='1h'):
     higher_df = fetch_latest_data(symbol, interval, limit=50)
