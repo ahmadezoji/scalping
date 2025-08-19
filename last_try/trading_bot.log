@@ -1,0 +1,50 @@
+2025-06-06 11:49:21,194 - INFO - Starting trading bot with enhanced strategy
+2025-06-06 11:49:21,195 - INFO - Initial Balance: 300.00 USDT
+2025-06-06 11:49:21,195 - INFO - Strategy Parameters:
+Symbol: BTCUSDT | TF: 5m
+EMA: 9 | VWAP Buffer: 0.15%
+TP: 1.0% | SL: 0.6%
+RSI Gate: 50 | Stoch OB/OS: 80/20
+2025-06-06 11:49:21,198 - ERROR - 🔥 Bot crashed with error: 'coroutine' object has no attribute 'empty'
+2025-06-06 11:49:21,442 - INFO - Message sent to Telegram successfully.
+2025-06-06 11:50:23,985 - INFO - Starting trading bot with enhanced strategy
+2025-06-06 11:50:23,987 - INFO - Initial Balance: 300.00 USDT
+2025-06-06 11:50:23,987 - INFO - Strategy Parameters:
+Symbol: BTCUSDT | TF: 5m
+EMA: 9 | VWAP Buffer: 0.15%
+TP: 1.0% | SL: 0.6%
+RSI Gate: 50 | Stoch OB/OS: 80/20
+2025-06-06 11:50:36,062 - ERROR - 🔥 Bot crashed with error: 'coroutine' object has no attribute 'empty'
+2025-06-06 11:50:36,289 - INFO - Message sent to Telegram successfully.
+2025-06-06 11:50:49,011 - INFO - Starting trading bot with enhanced strategy
+2025-06-06 11:50:49,012 - INFO - Initial Balance: 300.00 USDT
+2025-06-06 11:50:49,013 - INFO - Strategy Parameters:
+Symbol: BTCUSDT | TF: 5m
+EMA: 9 | VWAP Buffer: 0.15%
+TP: 1.0% | SL: 0.6%
+RSI Gate: 50 | Stoch OB/OS: 80/20
+2025-06-06 11:50:51,554 - ERROR - 🔥 Bot crashed with error: 'coroutine' object has no attribute 'empty'
+2025-06-06 11:50:51,783 - INFO - Message sent to Telegram successfully.
+2025-06-06 11:51:03,352 - INFO - Starting trading bot with enhanced strategy
+2025-06-06 11:51:03,353 - INFO - Initial Balance: 300.00 USDT
+2025-06-06 11:51:03,353 - INFO - Strategy Parameters:
+Symbol: BTCUSDT | TF: 5m
+EMA: 9 | VWAP Buffer: 0.15%
+TP: 1.0% | SL: 0.6%
+RSI Gate: 50 | Stoch OB/OS: 80/20
+2025-06-06 11:51:07,161 - ERROR - 🔥 Bot crashed with error: 'coroutine' object has no attribute 'empty'
+2025-06-06 11:51:07,418 - INFO - Message sent to Telegram successfully.
+2025-06-06 11:51:39,659 - INFO - Starting trading bot with enhanced strategy
+2025-06-06 11:51:39,661 - INFO - Initial Balance: 300.00 USDT
+2025-06-06 11:51:39,661 - INFO - Strategy Parameters:
+Symbol: BTCUSDT | TF: 5m
+EMA: 9 | VWAP Buffer: 0.15%
+TP: 1.0% | SL: 0.6%
+RSI Gate: 50 | Stoch OB/OS: 80/20
+2025-06-06 11:52:54,500 - INFO - Starting trading bot with enhanced strategy
+2025-06-06 11:52:54,501 - INFO - Initial Balance: 300.00 USDT
+2025-06-06 11:52:54,501 - INFO - Strategy Parameters:
+Symbol: BTCUSDT | TF: 5m
+EMA: 9 | VWAP Buffer: 0.15%
+TP: 1.0% | SL: 0.6%
+RSI Gate: 50 | Stoch OB/OS: 80/20
