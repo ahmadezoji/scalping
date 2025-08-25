@@ -190,23 +190,28 @@ class MomentumBot:
                 data = compute_indicators(df)
                 prev, cur = data.iloc[-2], data.iloc[-1]
 
-                # VWAP side filter
-                long_side_ok = True
-                short_side_ok = True
-                if USE_VWAP and "vwap" in data.columns:
-                    long_side_ok = cur.close > cur.vwap
-                    short_side_ok = cur.close < cur.vwap
-
-                # Volume confirmation if requested
+                # --- DEBUG: show all gatekeepers per candle ---
+                cross_up   = is_bull_cross(prev, cur)
+                cross_down = is_bear_cross(prev, cur)
+                vwap_side  = (not USE_VWAP) or (('vwap' in cur) and ((cur.close > cur.vwap) if cross_up else (cur.close < cur.vwap)))
                 if VOLUME_CONFIRM > 0:
                     vol_avg = data["volume"].tail(20).mean()
-                    vol_ok = cur["volume"] >= VOLUME_CONFIRM * vol_avg
+                    vol_ok  = cur["volume"] >= VOLUME_CONFIRM * vol_avg
                 else:
-                    vol_ok = True
+                    vol_avg = None
+                    vol_ok  = True
 
-                # Signals
-                long_sig = is_bull_cross(prev, cur) and long_side_ok and vol_ok
-                short_sig = is_bear_cross(prev, cur) and short_side_ok and vol_ok
+                logging.info(
+                    f"[{self.symbol}] t={cur.name} "
+                    f"close={cur.close:.2f} ema_fast={cur.ema_fast:.2f} ema_slow={cur.ema_slow:.2f} "
+                    f"VWAP={getattr(cur,'vwap',float('nan')):.2f} vol={cur['volume']:.2f} "
+                    f"cross_up={cross_up} cross_down={cross_down} "
+                    f"vwap_ok={vwap_side} vol_ok={vol_ok} (mult={VOLUME_CONFIRM}, avg20={vol_avg if vol_avg else 0})"
+                )
+
+                # Signals using debug variables
+                long_sig  = cross_up   and vwap_side and vol_ok
+                short_sig = cross_down and vwap_side and vol_ok
 
                 # Enter if flat
                 if self.state.side is None and (long_sig or short_sig):

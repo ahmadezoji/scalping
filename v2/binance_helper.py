@@ -4,6 +4,7 @@ from binance.exceptions import BinanceAPIException
 import logging
 import pandas as pd
 import os
+import decimal
 
 
 # Debugging: Check if config.ini exists
@@ -144,32 +145,48 @@ def place_order(symbol, side, usdt_amount):
 
         # Fetch LOT_SIZE filter dynamically
         min_qty, max_qty, step_size = get_lot_size(symbol)
-        logging.info(f"LOT_SIZE for {
-                     symbol} - Min Qty: {min_qty}, Max Qty: {max_qty}, Step Size: {step_size}")
+        logging.info(f"LOT_SIZE for {symbol} - Min Qty: {min_qty}, Max Qty: {max_qty}, Step Size: {step_size}")
 
-        # Calculate quantity and adjust to the nearest step size
-        raw_quantity = usdt_amount / last_price
-        # Determine the number of decimal places for step_size
-        precision = len(str(step_size).split('.')[-1])
-        quantity = round(raw_quantity - (raw_quantity % step_size), precision)
+        # Calculate allowed precision from step_size
+        step_size_str = '{0:.20f}'.format(step_size).rstrip('0')
+        if '.' in step_size_str:
+            precision = len(step_size_str.split('.')[-1])
+        else:
+            precision = 0
+
+        # Use Decimal for precise rounding
+        raw_quantity = decimal.Decimal(str(usdt_amount)) / decimal.Decimal(str(last_price))
+        step_size_dec = decimal.Decimal(str(step_size))
+        # Floor to step size
+        floored_qty = (raw_quantity // step_size_dec) * step_size_dec
+        # Format to exact precision
+        quantity_str = f"{floored_qty:.{precision}f}"
+
+        # Convert back to float for range checks
+        quantity = float(quantity_str)
 
         # Ensure quantity is within the allowed range
         if quantity < min_qty or quantity > max_qty:
             raise ValueError(
-                f"Quantity {quantity} is out of range for {
-                    symbol}: Min {min_qty}, Max {max_qty}"
+                f"Quantity {quantity} is out of range for {symbol}: Min {min_qty}, Max {max_qty}"
             )
+
+        # Ensure quantity is not zero or None
+        if not quantity or quantity is None or quantity <= 0:
+            logging.error(f"Order quantity is invalid: {quantity}")
+            return None
+
+        logging.info(f"Placing order: side={side}, quantity={quantity_str}, symbol={symbol}")
 
         # Place the order
         order = client.futures_create_order(
             symbol=symbol,
             side=side,
             type='MARKET',
-            quantity=quantity
+            quantity=quantity_str
         )
         current_quantity = quantity
-        logging.info(f"Order placed: {side} {quantity} of {
-                     symbol}. Order ID: {order['orderId']}")
+        logging.info(f"Order placed: {side} {quantity_str} of {symbol}. Order ID: {order['orderId']}")
 
         # Send message to Telegram group
         message = (
