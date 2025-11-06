@@ -243,7 +243,11 @@ class MomentumBot:
 
     async def risk_loop(self):
         """
-        Fast loop: manage trailing stop, take-profit, and fail-safe.
+        Fast loop: manage take-profit and fail-safe.
+        
+        NOTE: This is modified to *exactly match the backtest*.
+        It ONLY uses the fixed TP_PCT and FS_PCT.
+        The Trailing Stop (TRAIL_PCT) is disabled.
         """
         while True:
             try:
@@ -255,38 +259,30 @@ class MomentumBot:
                 ticker = client.futures_symbol_ticker(symbol=self.symbol)
                 last_price = float(ticker["price"])
 
-                # update swing refs
+                # --- Exit Logic (Matches Backtest) ---
                 if self.state.side == "LONG":
-                    self.state.high_since_entry = max(self.state.high_since_entry or last_price, last_price)
-                else:
-                    self.state.low_since_entry = min(self.state.low_since_entry or last_price, last_price)
-
-                # trailing + tp + fail-safe
-                if self.state.side == "LONG":
-                    # trailing: drop from high by TRAIL_PCT
-                    if last_price <= (self.state.high_since_entry * (1 - TRAIL_PCT)):
-                        await self._exit_market("TrailingStop", last_price)
-                        continue
                     # take profit: gain from entry TP_PCT
-                    if last_price >= (self.state.entry_price * (1 + TP_PCT)):
+                    tp_price = self.state.entry_price * (1 + TP_PCT)
+                    if last_price >= tp_price:
                         await self._exit_market("TakeProfit", last_price)
                         continue
+                        
                     # fail-safe: drop from entry FS_PCT
-                    if last_price <= (self.state.entry_price * (1 - FS_PCT)):
+                    sl_price = self.state.entry_price * (1 - FS_PCT)
+                    if last_price <= sl_price:
                         await self._exit_market("FailSafe", last_price)
                         continue
 
                 elif self.state.side == "SHORT":
-                    # trailing: bounce up from low by TRAIL_PCT
-                    if last_price >= (self.state.low_since_entry * (1 + TRAIL_PCT)):
-                        await self._exit_market("TrailingStop", last_price)
-                        continue
                     # take profit: drop from entry TP_PCT
-                    if last_price <= (self.state.entry_price * (1 - TP_PCT)):
+                    tp_price = self.state.entry_price * (1 - TP_PCT)
+                    if last_price <= tp_price:
                         await self._exit_market("TakeProfit", last_price)
                         continue
+                        
                     # fail-safe: rise from entry FS_PCT
-                    if last_price >= (self.state.entry_price * (1 + FS_PCT)):
+                    sl_price = self.state.entry_price * (1 + FS_PCT)
+                    if last_price >= sl_price:
                         await self._exit_market("FailSafe", last_price)
                         continue
 
@@ -327,144 +323,195 @@ class MomentumBot:
             self.state.high_since_entry = None
             self.state.low_since_entry = None
 # ------------------------- Backtest ---------------------------------------------
+# ------------------------- Backtest ---------------------------------------------
+# (in momentum_trader_bot.py)
+# REPLACE your old function with this one
+
+# ------------------------- Backtest ---------------------------------------------
 def backtest_momentum_strategy(
     symbol=None,
     timeframe=None,
     start_date=None,
     end_date=None,
-    tp=None,                 # take profit in %
-    sl=None,                 # stop loss in %
-    entry_balance=None,      # starting USDT
+    entry_balance=None,
     fee_bps=4,               # 0.04% per side
-    slippage_bps=1           # 0.01% simulated slippage
+    slippage_bps=1,          # 0.01% simulated slippage
+    
+    # --- NEW: Strategy parameters passed as arguments ---
+    # We default to the global config values so it doesn't break
+    # your old way of running it from if __name__ == "__main__"
+    ema_fast=EMA_FAST,
+    ema_slow=EMA_SLOW,
+    use_vwap=USE_VWAP,
+    volume_confirm=VOLUME_CONFIRM,
+    tp_pct_cfg=TP_PCT,  # Renamed to avoid conflict
+    sl_pct_cfg=FS_PCT   # Renamed to avoid conflict
 ):
     """
-    Simple backtest for your EMA+VWAP momentum scalping logic.
-
-    Uses your existing:
-      - get_klines_all(symbol, timeframe, start_time, end_time)
-      - calculate_vwap(df)
-
-    Signals (same family as your live logic):
-      LONG  if trend==BULL and close>VWAP and RSI>50
-      SHORT if trend==BEAR and close<VWAP and RSI<50
-
-    TP/SL are ACTUAL % moves from entry. Fees & slippage are applied on exit.
+    Backtest for the live EMA+VWAP momentum strategy.
+    
+    (docstring remains the same)
     """
 
     # ---- Resolve config fallbacks ----
-    try:
-        # if you imported from index like:
-        # from index import SYMBOL, trade_interval, entry_usdt, tp_percentage, sl_percentage
-        default_symbol = symbol
-        default_tf = timeframe
-        default_balance = entry_balance
-        default_tp = tp
-        default_sl = sl
-    except Exception:
-        # safe fallbacks if not imported
-        default_symbol = "BTCUSDT"
-        default_tf = "1m"
-        default_balance = 100.0
-        default_tp = 0.8
-        default_sl = 0.5
+    symbol = symbol or SYMBOLS[0]
+    timeframe = timeframe or TF
+    entry_balance = float(entry_balance or 100.0)
 
-    symbol = symbol or default_symbol
-    timeframe = timeframe or default_tf
-    entry_balance = float(entry_balance or default_balance)
-    tp = float(tp if tp is not None else default_tp)
-    sl = float(sl if sl is not None else default_sl)
+    # Use the *passed-in* strategy's TP and SL values
+    # (Converts 0.015 -> 1.5%)
+    tp_pct = tp_pct_cfg * 100.0
+    sl_pct = sl_pct_cfg * 100.0
+
+    log_and_print(f"[Backtest] Running for {symbol} on {timeframe}...")
+    # Use the passed-in arguments for logging
+    log_and_print(f"[Backtest] Strategy: EMA{ema_fast}/{ema_slow}, VWAP={use_vwap}, VolConfirm={volume_confirm}")
+    log_and_print(f"[Backtest] Exits: TP={tp_pct:.2f}%, SL={sl_pct:.2f}%")
 
     # ---- Fetch & prep data ----
-    df = get_klines_all(symbol, timeframe, start_time=start_date, end_time=end_date, limit=50)
+    try:
+        klines_list = client.get_historical_klines(
+            symbol, timeframe, start_str=start_date, end_str=end_date
+        )
+        df = pd.DataFrame(klines_list, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_asset_volume', 'number_of_trades',
+            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+        ])
+    except Exception as e:
+        print(f"Error fetching klines: {e}")
+        return None
+
     if df.empty:
         print("No data fetched for backtest.")
         return None
 
-    df = calculate_vwap(df)
-    df['ema_fast'] = df['close'].ewm(span=8, adjust=False).mean()
-    df['ema_slow'] = df['close'].ewm(span=21, adjust=False).mean()
-    df['trend'] = np.where(df['ema_fast'] > df['ema_slow'], 'BULL', 'BEAR')
+    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = pd.to_numeric(df[col])
+
+    log_and_print(f"[Backtest] Fetched {len(df)} candles from {df['timestamp'].iloc[0]} to {df['timestamp'].iloc[-1]}")
+
+    # ---- Calculate indicators (using passed-in args) ----
+    df["ema_fast"] = ema(df["close"], ema_fast)
+    df["ema_slow"] = ema(df["close"], ema_slow)
+    if use_vwap:
+        df["vwap"] = compute_vwap(df)
+    if volume_confirm > 0:
+        df['vol_avg_20'] = df['volume'].rolling(20).mean()
 
     # ---- State ----
     balance = entry_balance
-    position = None      # 'LONG' | 'SHORT' | None
-    entry_price = None
+    position = None
+    entry_price = 0.0
     entry_time = None
-
     trades = []
     wins = 0
     peak_balance = balance
     max_dd = 0.0
 
     # ---- Iterate candles ----
-    for i in range(30, len(df)):  # allow indicators to warm up
-        row = df.iloc[i]
-        close = row['close']
+    for i in range(max(30, ema_slow), len(df)):  # Wait for slow EMA to warm up
+        prev = df.iloc[i-1]
+        cur = df.iloc[i]
 
-        # manage open position
+        # --- 1. Manage Open Position (Check Exits) ---
         if position:
-            change_pct = ((close - entry_price) / entry_price * 100.0) if position == 'LONG' else ((entry_price - close) / entry_price * 100.0)
+            exit_price = None
+            exit_reason = None
+            
+            if position == 'LONG':
+                tp_price = entry_price * (1 + tp_pct / 100.0)
+                sl_price = entry_price * (1 - sl_pct / 100.0)
+                
+                if cur['high'] >= tp_price:
+                    exit_price = tp_price
+                    exit_reason = "TakeProfit"
+                elif cur['low'] <= sl_price:
+                    exit_price = sl_price
+                    exit_reason = "StopLoss"
+                    
+            elif position == 'SHORT':
+                tp_price = entry_price * (1 - tp_pct / 100.0)
+                sl_price = entry_price * (1 + sl_pct / 100.0)
 
-            # TP/SL hit?
-            if change_pct >= tp or change_pct <= -sl:
-                # apply slippage + fees (round-trip)
-                gross_pct = change_pct
+                if cur['low'] <= tp_price:
+                    exit_price = tp_price
+                    exit_reason = "TakeProfit"
+                elif cur['high'] >= sl_price:
+                    exit_price = sl_price
+                    exit_reason = "StopLoss"
+
+            if exit_price:
+                change_pct = ((exit_price - entry_price) / entry_price * 100.0) if position == 'LONG' else ((entry_price - exit_price) / entry_price * 100.0)
                 fees_pct = (fee_bps / 100.0) * 2
-                slip_pct = slippage_bps / 100.0
-                net_pct = gross_pct - fees_pct - (slip_pct * 100.0)
+                slip_pct = (slippage_bps / 100.0)
+                net_pct = change_pct - fees_pct - slip_pct
 
                 balance *= (1.0 + net_pct / 100.0)
                 wins += 1 if net_pct > 0 else 0
 
                 trades.append({
                     "entry_time": entry_time,
-                    "exit_time": row['timestamp'],
+                    "exit_time": cur['timestamp'],
                     "side": position,
                     "entry_price": float(entry_price),
-                    "exit_price": float(close),
-                    "gross_pct": float(gross_pct),
+                    "exit_price": float(exit_price),
+                    "reason": exit_reason,
                     "net_pct": float(net_pct),
                     "balance": float(balance),
                 })
 
-                # reset position
                 position = None
-                entry_price = None
+                entry_price = 0.0
                 entry_time = None
 
-                # track drawdown
                 if balance > peak_balance:
                     peak_balance = balance
                 dd = (peak_balance - balance) / peak_balance * 100.0
                 max_dd = max(max_dd, dd)
 
-                continue  # evaluate next candle fresh
+                continue
 
-        # look for new entry only if flat
+        # --- 2. Look for New Entry (if flat) ---
         if position is None:
-            bull = (row['trend'] == 'BULL')
-            bear = (row['trend'] == 'BEAR')
-            above_vwap = close > row['vwap']
-            below_vwap = close < row['vwap']
-            rsi = row['rsi']
+            # --- REPLICATE LIVE SIGNAL LOGIC (using passed-in args) ---
+            cross_up   = is_bull_cross(prev, cur)
+            cross_down = is_bear_cross(prev, cur)
+            
+            vwap_side  = (not use_vwap) or \
+                         (use_vwap and 'vwap' in cur and not pd.isna(cur['vwap']) and (
+                           (cur.close > cur.vwap and cross_up) or \
+                           (cur.close < cur.vwap and cross_down)
+                         ))
+            
+            if volume_confirm > 0:
+                vol_ok = 'vol_avg_20' in cur and not pd.isna(cur['vol_avg_20']) and cur['volume'] >= volume_confirm * cur['vol_avg_20']
+            else:
+                vol_ok = True
 
-            # you can add volume/ATR filters here if you want to tighten
-            if bull and above_vwap and rsi > 50:
+            long_sig  = cross_up   and vwap_side and vol_ok
+            short_sig = cross_down and vwap_side and vol_ok
+            # --- END OF LIVE SIGNAL LOGIC ---
+
+            if long_sig:
                 position = 'LONG'
-                entry_price = close
-                entry_time = row['timestamp']
+                entry_price = cur['close']
+                entry_time = cur['timestamp']
 
-            elif bear and below_vwap and rsi < 50:
+            elif short_sig:
                 position = 'SHORT'
-                entry_price = close
-                entry_time = row['timestamp']
+                entry_price = cur['close']
+                entry_time = cur['timestamp']
 
+    # ---- Final Report ----
     total_trades = len(trades)
     win_rate = (wins / total_trades * 100.0) if total_trades else 0.0
     total_return_pct = ((balance - entry_balance) / entry_balance * 100.0)
     avg_trade_pct = (np.mean([t["net_pct"] for t in trades]) if trades else 0.0)
 
+    # Return the results *and* the parameters used
     return {
         "symbol": symbol,
         "timeframe": timeframe,
@@ -473,17 +520,20 @@ def backtest_momentum_strategy(
         "starting_balance": float(entry_balance),
         "final_balance": float(balance),
         "total_return_pct": float(total_return_pct),
-        "trades": trades,
         "total_trades": total_trades,
         "win_rate_pct": float(win_rate),
         "avg_trade_net_pct": float(avg_trade_pct),
         "max_drawdown_pct": float(max_dd),
-        "tp_pct": float(tp),
-        "sl_pct": float(sl),
+        # --- Return parameters for analysis ---
+        "tp_pct": float(tp_pct),
+        "sl_pct": float(sl_pct),
+        "ema_fast": ema_fast,
+        "ema_slow": ema_slow,
+        "use_vwap": use_vwap,
+        "volume_confirm": volume_confirm,
         "fee_bps": float(fee_bps),
-        "slippage_bps": float(slippage_bps),
+        "slippage_bps": float(slippage_bps)
     }
-
 
 # ------------------------- Runner --------------------------------------------
 async def run():
@@ -519,18 +569,30 @@ async def run():
 
 if __name__ == "__main__":
     try:
-        # asyncio.run(run())
-        results = backtest_momentum_strategy(
-                symbol="BTCUSDT",
-                timeframe="15m",
-                start_date = "2024-10-01 00:00:00",
-                end_date = "2024-11-01 00:00:00",
-                tp=0.75,  # %
-                sl=0.5,   # %
-                entry_balance=100
-            )
+        asyncio.run(run())
+        # results = backtest_momentum_strategy(
+        #         symbol="BTCUSDT",
+        #         timeframe="5m", # Test other timeframes like '5m' or '1h'
+        #         start_date = "2024-10-01 00:00:00",
+        #         end_date = "2024-11-01 00:00:00",
+        #         entry_balance=100
+        #     )
         
-        # results = backtest_strategy("BTCUSDT", "15m", "2024-10-01 00:00:00", "2024-11-01 00:00:00")
+        # if results:
+        #     print(f"Symbol: {results['symbol']}")
+        #     print(f"Timeframe: {results['timeframe']}")
+        #     print(f"Period: {results['start']} to {results['end']}")
+        #     print(f"Starting Balance: ${results['starting_balance']:.2f}")
+        #     print(f"Final Balance: ${results['final_balance']:.2f}")
+        #     print(f"Total Return: {results['total_return_pct']:.2f}%")
+        #     print(f"Total Trades: {results['total_trades']}")
+        #     print(f"Win Rate: {results['win_rate_pct']:.2f}%")
+        #     print(f"Average Trade: {results['avg_trade_net_pct']:.2f}%")
+        #     print(f"Max Drawdown: {results['max_drawdown_pct']:.2f}%")
+        #     print(f"Take Profit: {results['tp_pct']:.2f}%")
+        #     print(f"Stop Loss: {results['sl_pct']:.2f}%")
+        # else:
+        #     print("No results to display")
 
     except KeyboardInterrupt:
         pass
