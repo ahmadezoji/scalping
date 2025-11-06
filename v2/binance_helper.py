@@ -4,7 +4,9 @@ from binance.exceptions import BinanceAPIException
 import logging
 import pandas as pd
 import os
-import decimal
+from decimal import Decimal
+
+from telegram import send_telegram_message
 
 
 # Debugging: Check if config.ini exists
@@ -33,6 +35,9 @@ try:
 
     API_KEY = config["API"]["API_KEY"]
     API_SECRET = config["API"]["API_SECRET"]
+
+    API_KEY_TEST = config["API_TEST"]["API_KEY"]
+    API_SECRET_TEST = config["API_TEST"]["API_SECRET"]
 except KeyError as e:
     raise KeyError(f"Missing key in config.ini: {e}")
 
@@ -133,61 +138,40 @@ def close_futures_position(symbol, position, quantity):
     except Exception as e:
         log_and_print(f"Error closing position: {e}")
         return None
-
+def format_quantity(quantity, step_size):
+        """Format quantity to match Binance step size exactly."""
+        step_size_dec = Decimal(str(step_size))
+        quant = (Decimal(str(quantity)) // step_size_dec) * step_size_dec
+        # Remove scientific notation and limit to step_size precision
+        return str(quant.normalize())
 
 def place_order(symbol, side, usdt_amount):
-    """Place a buy or sell order on Binance Futures."""
     global current_quantity
     try:
-        # Fetch the latest price
         ticker = client.futures_symbol_ticker(symbol=symbol)
         last_price = float(ticker['price'])
 
-        # Fetch LOT_SIZE filter dynamically
         min_qty, max_qty, step_size = get_lot_size(symbol)
         logging.info(f"LOT_SIZE for {symbol} - Min Qty: {min_qty}, Max Qty: {max_qty}, Step Size: {step_size}")
 
-        # Calculate allowed precision from step_size
-        step_size_str = '{0:.20f}'.format(step_size).rstrip('0')
-        if '.' in step_size_str:
-            precision = len(step_size_str.split('.')[-1])
-        else:
-            precision = 0
+        raw_quantity = usdt_amount / last_price
+        quantity = Decimal(str(raw_quantity))
 
-        # Use Decimal for precise rounding
-        raw_quantity = decimal.Decimal(str(usdt_amount)) / decimal.Decimal(str(last_price))
-        step_size_dec = decimal.Decimal(str(step_size))
-        # Floor to step size
-        floored_qty = (raw_quantity // step_size_dec) * step_size_dec
-        # Format to exact precision
-        quantity_str = f"{floored_qty:.{precision}f}"
+        # Format correctly for Binance
+        formatted_quantity = format_quantity(quantity, step_size)
 
-        # Convert back to float for range checks
-        quantity = float(quantity_str)
+        if Decimal(formatted_quantity) < Decimal(str(min_qty)) or Decimal(formatted_quantity) > Decimal(str(max_qty)):
+            raise ValueError(f"Quantity {formatted_quantity} is out of range for {symbol}: Min {min_qty}, Max {max_qty}")
 
-        # Ensure quantity is within the allowed range
-        if quantity < min_qty or quantity > max_qty:
-            raise ValueError(
-                f"Quantity {quantity} is out of range for {symbol}: Min {min_qty}, Max {max_qty}"
-            )
-
-        # Ensure quantity is not zero or None
-        if not quantity or quantity is None or quantity <= 0:
-            logging.error(f"Order quantity is invalid: {quantity}")
-            return None
-
-        logging.info(f"Placing order: side={side}, quantity={quantity_str}, symbol={symbol}")
-
-        # Place the order
         order = client.futures_create_order(
             symbol=symbol,
             side=side,
             type='MARKET',
-            quantity=quantity_str
+            quantity=formatted_quantity
         )
-        current_quantity = quantity
-        logging.info(f"Order placed: {side} {quantity_str} of {symbol}. Order ID: {order['orderId']}")
-
+        current_quantity = float(formatted_quantity)
+        logging.info(f"Order placed: {side} {formatted_quantity} of {symbol}. Order ID: {order['orderId']}")
+        
         # Send message to Telegram group
         message = (
             f"🚀 <b>New Order Placed</b> 🚀\n"
@@ -196,7 +180,7 @@ def place_order(symbol, side, usdt_amount):
             f"💵 <b>Quantity:</b> {quantity}\n"
             f"💰 <b>Price:</b> {last_price}\n"
         )
-        # send_telegram_message(message)
+        send_telegram_message(message)
 
         return order
 
@@ -384,3 +368,30 @@ def close_all_positions():
 def calculate_max_quantity(available_balance, leverage, current_price):
     max_quantity = (available_balance * leverage) / current_price
     return max_quantity
+
+
+def main():
+    """Main function to place a DOGEUSDT order for $20."""
+    symbol = "DOGEUSDT"
+    side = "BUY"  # You can change this to "SELL" if needed
+    usdt_amount = 20.0
+    
+    try:
+        # Set up logging
+        logging.basicConfig(level=logging.INFO)
+        
+        # Place the order
+        log_and_print(f"Placing {side} order for {symbol} with ${usdt_amount}")
+        order = place_order(symbol, side, usdt_amount)
+        
+        if order:
+            log_and_print(f"Order successfully placed: {order}")
+        else:
+            log_and_print("Failed to place order")
+            
+    except Exception as e:
+        log_and_print(f"Error in main function: {e}")
+
+
+if __name__ == "__main__":
+    main()

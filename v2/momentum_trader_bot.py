@@ -26,11 +26,12 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 
-# import sys
-# import os
-# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 from binance_helper import log_and_print, set_margin_mode, set_leverage, get_futures_account_balance, place_order, get_klines_all, client
+from vwap_helper import calculate_vwap
 
 # ---- import your helpers -----------------------------------------------------
 
@@ -153,6 +154,8 @@ class MomentumBot:
         pos_value_usdt = (RISK_PER_TRADE_PCT * balance_usdt * LEVERAGE) / FS_PCT
         # clip tiny positions
         return max(pos_value_usdt, 0.0)
+
+   
 
     async def signal_loop(self):
         """
@@ -323,6 +326,164 @@ class MomentumBot:
             self.state.qty_usdt = 0.0
             self.state.high_since_entry = None
             self.state.low_since_entry = None
+# ------------------------- Backtest ---------------------------------------------
+def backtest_momentum_strategy(
+    symbol=None,
+    timeframe=None,
+    start_date=None,
+    end_date=None,
+    tp=None,                 # take profit in %
+    sl=None,                 # stop loss in %
+    entry_balance=None,      # starting USDT
+    fee_bps=4,               # 0.04% per side
+    slippage_bps=1           # 0.01% simulated slippage
+):
+    """
+    Simple backtest for your EMA+VWAP momentum scalping logic.
+
+    Uses your existing:
+      - get_klines_all(symbol, timeframe, start_time, end_time)
+      - calculate_vwap(df)
+
+    Signals (same family as your live logic):
+      LONG  if trend==BULL and close>VWAP and RSI>50
+      SHORT if trend==BEAR and close<VWAP and RSI<50
+
+    TP/SL are ACTUAL % moves from entry. Fees & slippage are applied on exit.
+    """
+
+    # ---- Resolve config fallbacks ----
+    try:
+        # if you imported from index like:
+        # from index import SYMBOL, trade_interval, entry_usdt, tp_percentage, sl_percentage
+        default_symbol = symbol
+        default_tf = timeframe
+        default_balance = entry_balance
+        default_tp = tp
+        default_sl = sl
+    except Exception:
+        # safe fallbacks if not imported
+        default_symbol = "BTCUSDT"
+        default_tf = "1m"
+        default_balance = 100.0
+        default_tp = 0.8
+        default_sl = 0.5
+
+    symbol = symbol or default_symbol
+    timeframe = timeframe or default_tf
+    entry_balance = float(entry_balance or default_balance)
+    tp = float(tp if tp is not None else default_tp)
+    sl = float(sl if sl is not None else default_sl)
+
+    # ---- Fetch & prep data ----
+    df = get_klines_all(symbol, timeframe, start_time=start_date, end_time=end_date, limit=50)
+    if df.empty:
+        print("No data fetched for backtest.")
+        return None
+
+    df = calculate_vwap(df)
+    df['ema_fast'] = df['close'].ewm(span=8, adjust=False).mean()
+    df['ema_slow'] = df['close'].ewm(span=21, adjust=False).mean()
+    df['trend'] = np.where(df['ema_fast'] > df['ema_slow'], 'BULL', 'BEAR')
+
+    # ---- State ----
+    balance = entry_balance
+    position = None      # 'LONG' | 'SHORT' | None
+    entry_price = None
+    entry_time = None
+
+    trades = []
+    wins = 0
+    peak_balance = balance
+    max_dd = 0.0
+
+    # ---- Iterate candles ----
+    for i in range(30, len(df)):  # allow indicators to warm up
+        row = df.iloc[i]
+        close = row['close']
+
+        # manage open position
+        if position:
+            change_pct = ((close - entry_price) / entry_price * 100.0) if position == 'LONG' else ((entry_price - close) / entry_price * 100.0)
+
+            # TP/SL hit?
+            if change_pct >= tp or change_pct <= -sl:
+                # apply slippage + fees (round-trip)
+                gross_pct = change_pct
+                fees_pct = (fee_bps / 100.0) * 2
+                slip_pct = slippage_bps / 100.0
+                net_pct = gross_pct - fees_pct - (slip_pct * 100.0)
+
+                balance *= (1.0 + net_pct / 100.0)
+                wins += 1 if net_pct > 0 else 0
+
+                trades.append({
+                    "entry_time": entry_time,
+                    "exit_time": row['timestamp'],
+                    "side": position,
+                    "entry_price": float(entry_price),
+                    "exit_price": float(close),
+                    "gross_pct": float(gross_pct),
+                    "net_pct": float(net_pct),
+                    "balance": float(balance),
+                })
+
+                # reset position
+                position = None
+                entry_price = None
+                entry_time = None
+
+                # track drawdown
+                if balance > peak_balance:
+                    peak_balance = balance
+                dd = (peak_balance - balance) / peak_balance * 100.0
+                max_dd = max(max_dd, dd)
+
+                continue  # evaluate next candle fresh
+
+        # look for new entry only if flat
+        if position is None:
+            bull = (row['trend'] == 'BULL')
+            bear = (row['trend'] == 'BEAR')
+            above_vwap = close > row['vwap']
+            below_vwap = close < row['vwap']
+            rsi = row['rsi']
+
+            # you can add volume/ATR filters here if you want to tighten
+            if bull and above_vwap and rsi > 50:
+                position = 'LONG'
+                entry_price = close
+                entry_time = row['timestamp']
+
+            elif bear and below_vwap and rsi < 50:
+                position = 'SHORT'
+                entry_price = close
+                entry_time = row['timestamp']
+
+    total_trades = len(trades)
+    win_rate = (wins / total_trades * 100.0) if total_trades else 0.0
+    total_return_pct = ((balance - entry_balance) / entry_balance * 100.0)
+    avg_trade_pct = (np.mean([t["net_pct"] for t in trades]) if trades else 0.0)
+
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "start": df['timestamp'].iloc[0],
+        "end": df['timestamp'].iloc[-1],
+        "starting_balance": float(entry_balance),
+        "final_balance": float(balance),
+        "total_return_pct": float(total_return_pct),
+        "trades": trades,
+        "total_trades": total_trades,
+        "win_rate_pct": float(win_rate),
+        "avg_trade_net_pct": float(avg_trade_pct),
+        "max_drawdown_pct": float(max_dd),
+        "tp_pct": float(tp),
+        "sl_pct": float(sl),
+        "fee_bps": float(fee_bps),
+        "slippage_bps": float(slippage_bps),
+    }
+
 
 # ------------------------- Runner --------------------------------------------
 async def run():
@@ -358,10 +519,19 @@ async def run():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(run())
+        # asyncio.run(run())
+        results = backtest_momentum_strategy(
+                symbol="BTCUSDT",
+                timeframe="15m",
+                start_date = "2024-10-01 00:00:00",
+                end_date = "2024-11-01 00:00:00",
+                tp=0.75,  # %
+                sl=0.5,   # %
+                entry_balance=100
+            )
+        
+        # results = backtest_strategy("BTCUSDT", "15m", "2024-10-01 00:00:00", "2024-11-01 00:00:00")
+
     except KeyboardInterrupt:
         pass
-    try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        pass
+   
