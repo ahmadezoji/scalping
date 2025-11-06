@@ -42,8 +42,8 @@ except KeyError as e:
     raise KeyError(f"Missing key in config.ini: {e}")
 
 try:
-    client = Client(API_KEY_TEST, API_SECRET_TEST, testnet=True)
-    client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
+    client = Client(API_KEY, API_SECRET, testnet=False)
+    # client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
 
 except Exception as e:
     print(f"Error during ping: {e}")
