@@ -570,30 +570,30 @@ async def run():
 
 if __name__ == "__main__":
     try:
-        # asyncio.run(run())
-        results = backtest_momentum_strategy(
-                symbol="BTCUSDT",
-                timeframe="15m", # Test other timeframes like '5m' or '1h'
-                start_date = "2025-07-08 00:00:00",
-                end_date = "2025-08-08 00:00:00",
-                entry_balance=2000
-            )
+        asyncio.run(run())
+        # results = backtest_momentum_strategy(
+        #         symbol="BTCUSDT",
+        #         timeframe="15m", # Test other timeframes like '5m' or '1h'
+        #         start_date = "2025-07-08 00:00:00",
+        #         end_date = "2025-08-08 00:00:00",
+        #         entry_balance=2000
+        #     )
         
-        if results:
-            print(f"Symbol: {results['symbol']}")
-            print(f"Timeframe: {results['timeframe']}")
-            print(f"Period: {results['start']} to {results['end']}")
-            print(f"Starting Balance: ${results['starting_balance']:.2f}")
-            print(f"Final Balance: ${results['final_balance']:.2f}")
-            print(f"Total Return: {results['total_return_pct']:.2f}%")
-            print(f"Total Trades: {results['total_trades']}")
-            print(f"Win Rate: {results['win_rate_pct']:.2f}%")
-            print(f"Average Trade: {results['avg_trade_net_pct']:.2f}%")
-            print(f"Max Drawdown: {results['max_drawdown_pct']:.2f}%")
-            print(f"Take Profit: {results['tp_pct']:.2f}%")
-            print(f"Stop Loss: {results['sl_pct']:.2f}%")
-        else:
-            print("No results to display")
+        # if results:
+        #     print(f"Symbol: {results['symbol']}")
+        #     print(f"Timeframe: {results['timeframe']}")
+        #     print(f"Period: {results['start']} to {results['end']}")
+        #     print(f"Starting Balance: ${results['starting_balance']:.2f}")
+        #     print(f"Final Balance: ${results['final_balance']:.2f}")
+        #     print(f"Total Return: {results['total_return_pct']:.2f}%")
+        #     print(f"Total Trades: {results['total_trades']}")
+        #     print(f"Win Rate: {results['win_rate_pct']:.2f}%")
+        #     print(f"Average Trade: {results['avg_trade_net_pct']:.2f}%")
+        #     print(f"Max Drawdown: {results['max_drawdown_pct']:.2f}%")
+        #     print(f"Take Profit: {results['tp_pct']:.2f}%")
+        #     print(f"Stop Loss: {results['sl_pct']:.2f}%")
+        # else:
+        #     print("No results to display")
 
     except KeyboardInterrupt:
         pass
