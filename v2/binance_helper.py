@@ -31,8 +31,6 @@ try:
     sleep_time = int(config["TRADING"]["sleep_time"])  # e.g., 5 minutes
     tp_sl_check_interval = int(config["TRADING"]["tp_sl_check_interval"])  # e.g., 30 seconds
 
-
-
     API_KEY = config["API"]["API_KEY"]
     API_SECRET = config["API"]["API_SECRET"]
 
@@ -41,10 +39,14 @@ try:
 except KeyError as e:
     raise KeyError(f"Missing key in config.ini: {e}")
 
-try:
-    client = Client(API_KEY_TEST, API_SECRET_TEST, testnet=True)
-    client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
+USE_TESTNET = config.getboolean("TRADING", "use_testnet", fallback=False)
 
+try:
+    if USE_TESTNET:
+        client = Client(API_KEY_TEST, API_SECRET_TEST, testnet=True)
+        client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
+    else:
+        client = Client(API_KEY, API_SECRET)
 except Exception as e:
     print(f"Error during ping: {e}")
 
@@ -145,7 +147,7 @@ def format_quantity(quantity, step_size):
         # Remove scientific notation and limit to step_size precision
         return str(quant.normalize())
 
-def place_order(symbol, side, usdt_amount):
+def place_order(symbol, side, usdt_amount, reduce_only=False):
     global current_quantity
     try:
         ticker = client.futures_symbol_ticker(symbol=symbol)
@@ -167,7 +169,8 @@ def place_order(symbol, side, usdt_amount):
             symbol=symbol,
             side=side,
             type='MARKET',
-            quantity=formatted_quantity
+            quantity=formatted_quantity,
+            reduceOnly=reduce_only,
         )
         current_quantity = float(formatted_quantity)
         logging.info(f"Order placed: {side} {formatted_quantity} of {symbol}. Order ID: {order['orderId']}")

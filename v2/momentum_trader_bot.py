@@ -18,6 +18,7 @@ import asyncio
 import signal
 import sys
 import time
+import random
 from datetime import datetime, timedelta
 import configparser
 import logging
@@ -116,6 +117,7 @@ class PositionState:
         self.side: Optional[str] = None       # 'LONG' or 'SHORT'
         self.entry_price: Optional[float] = None
         self.qty_usdt: float = 0.0            # we pass usdt_amount to place_order
+        self.qty: float = 0.0                 # base asset quantity
         self.high_since_entry: Optional[float] = None
         self.low_since_entry: Optional[float] = None
         self.last_candle_time: Optional[pd.Timestamp] = None
@@ -138,13 +140,50 @@ class MomentumBot:
         self.symbol = symbol
         self.state = PositionState()
 
+    @staticmethod
+    def _extract_avg_price(order, fallback_price: float) -> float:
+        try:
+            avg_price = float(order.get("avgPrice") or 0)
+            if avg_price > 0:
+                return avg_price
+        except Exception:
+            pass
+        try:
+            price = float(order.get("price") or 0)
+            if price > 0:
+                return price
+        except Exception:
+            pass
+        return fallback_price
+
     async def setup(self):
         # Margin/leverage one time
         set_margin_mode(self.symbol, "ISOLATED")
         set_leverage(self.symbol, LEVERAGE)
+        self._sync_position_from_exchange()
         notify(f"[{self.symbol}] Ready | TF={TF} EMA{EMA_FAST}/{EMA_SLOW} VWAP={USE_VWAP} "
                f"TRAIL={TRAIL_PCT*100:.2f}% TP={TP_PCT*100:.2f}% FS={FS_PCT*100:.2f}% "
                f"LEV={LEVERAGE} Risk/Trade={RISK_PER_TRADE_PCT*100:.2f}%")
+
+    def _sync_position_from_exchange(self) -> None:
+        try:
+            positions = client.futures_position_information(symbol=self.symbol)
+            if not positions:
+                return
+            pos = positions[0]
+            position_amt = float(pos.get("positionAmt") or 0)
+            entry_price = float(pos.get("entryPrice") or 0)
+            if position_amt == 0 or entry_price == 0:
+                return
+            self.state.side = "LONG" if position_amt > 0 else "SHORT"
+            self.state.entry_price = entry_price
+            self.state.qty = abs(position_amt)
+            self.state.qty_usdt = self.state.qty * entry_price
+            self.state.high_since_entry = entry_price
+            self.state.low_since_entry = entry_price
+            notify(f"[{self.symbol}] Synced open position: {self.state.side} qty={self.state.qty} @ {entry_price:.2f}")
+        except Exception as e:
+            logging.warning(f"[{self.symbol}] Position sync failed: {e}")
 
     def _position_size_usdt(self, balance_usdt: float, entry_price: float) -> float:
         # Risk model: (position_value / LEVERAGE) * FS_PCT ~= RISK_PER_TRADE_PCT * balance
@@ -179,18 +218,23 @@ class MomentumBot:
                     continue
 
                 df = get_klines_all(self.symbol, TF, limit=200)
-                if df.empty or len(df) < 30:
+                min_len = max(30, EMA_SLOW) + 2  # warmup + last open + prev/cur
+                if df.empty or len(df) < min_len:
                     await asyncio.sleep(SIGNAL_LOOP_SEC)
                     continue
 
                 # Only act on NEWLY CLOSED candle
-                last_candle_time = df["timestamp"].iloc[-1]
+                data = compute_indicators(df.iloc[:-1])
+                if len(data) < 2:
+                    await asyncio.sleep(SIGNAL_LOOP_SEC)
+                    continue
+
+                last_candle_time = data["timestamp"].iloc[-1]
                 if self.state.last_candle_time is not None and last_candle_time == self.state.last_candle_time:
                     await asyncio.sleep(SIGNAL_LOOP_SEC)
                     continue
                 self.state.last_candle_time = last_candle_time
 
-                data = compute_indicators(df)
                 prev, cur = data.iloc[-2], data.iloc[-1]
 
                 # --- DEBUG: show all gatekeepers per candle ---
@@ -218,6 +262,10 @@ class MomentumBot:
 
                 # Enter if flat
                 if self.state.side is None and (long_sig or short_sig):
+                    self._sync_position_from_exchange()
+                    if self.state.side is not None:
+                        await asyncio.sleep(SIGNAL_LOOP_SEC)
+                        continue
                     side = "BUY" if long_sig else "SELL"
                     entry_price = float(cur["close"])
                     balance = get_futures_account_balance("USDT")
@@ -230,9 +278,14 @@ class MomentumBot:
 
                     order = place_order(self.symbol, side, usdt_amount=usdt_amt)
                     if order:
+                        entry_price = self._extract_avg_price(order, entry_price)
+                        qty = float(order.get("executedQty") or order.get("origQty") or 0)
+                        if qty <= 0:
+                            qty = usdt_amt / entry_price
                         self.state.side = "LONG" if long_sig else "SHORT"
                         self.state.entry_price = entry_price
                         self.state.qty_usdt = usdt_amt
+                        self.state.qty = qty
                         self.state.high_since_entry = entry_price
                         self.state.low_since_entry = entry_price
                         notify(f"[{self.symbol}] ENTER {self.state.side} @ {entry_price:.2f} "
@@ -252,6 +305,10 @@ class MomentumBot:
         while True:
             try:
                 if self.state.side is None:
+                    await asyncio.sleep(RISK_LOOP_SEC)
+                    continue
+                if self.state.entry_price is None:
+                    self._sync_position_from_exchange()
                     await asyncio.sleep(RISK_LOOP_SEC)
                     continue
 
@@ -294,11 +351,15 @@ class MomentumBot:
     async def _exit_market(self, reason: str, last_price: float):
         # Close by sending reverse side order for the same notional
         out_side = "SELL" if self.state.side == "LONG" else "BUY"
-        usdt_amt = self.state.qty_usdt
-        order = place_order(self.symbol, out_side, usdt_amount=usdt_amt)
+        if self.state.qty > 0:
+            usdt_amt = self.state.qty * last_price
+        else:
+            usdt_amt = self.state.qty_usdt
+        order = place_order(self.symbol, out_side, usdt_amount=usdt_amt, reduce_only=True)
         if order:
-            pnl_pct = ((last_price - self.state.entry_price) / self.state.entry_price) if self.state.side == "LONG" \
-                      else ((self.state.entry_price - last_price) / self.state.entry_price)
+            exit_price = self._extract_avg_price(order, last_price)
+            pnl_pct = ((exit_price - self.state.entry_price) / self.state.entry_price) if self.state.side == "LONG" \
+                      else ((self.state.entry_price - exit_price) / self.state.entry_price)
             pnl_pct *= 100.0
             # Update daily pnl approximation (notional based)
             self.state.daily_pnl += (pnl_pct / 100.0) * (usdt_amt / LEVERAGE)
@@ -313,13 +374,14 @@ class MomentumBot:
             if reason == "TakeProfit":
                 self.state.sl_streak = 0  # reset streak on win
 
-            notify(f"[{self.symbol}] EXIT ({reason}) {self.state.side} @ {last_price:.2f} | "
+            notify(f"[{self.symbol}] EXIT ({reason}) {self.state.side} @ {exit_price:.2f} | "
                    f"PnL≈{pnl_pct:.2f}%  DailyPnL≈{self.state.daily_pnl:.2f} USDT")
 
             # flat
             self.state.side = None
             self.state.entry_price = None
             self.state.qty_usdt = 0.0
+            self.state.qty = 0.0
             self.state.high_since_entry = None
             self.state.low_since_entry = None
 # ------------------------- Backtest ---------------------------------------------
@@ -412,7 +474,7 @@ def backtest_momentum_strategy(
     max_dd = 0.0
 
     # ---- Iterate candles ----
-    for i in range(max(30, ema_slow), len(df)):  # Wait for slow EMA to warm up
+    for i in range(max(30, ema_slow), len(df) - 1):  # Wait for slow EMA to warm up
         prev = df.iloc[i-1]
         cur = df.iloc[i]
 
@@ -497,19 +559,57 @@ def backtest_momentum_strategy(
 
             if long_sig:
                 position = 'LONG'
-                entry_price = cur['close']
-                entry_time = cur['timestamp']
+                next_candle = df.iloc[i+1]
+                entry_price = next_candle['open']
+                entry_time = next_candle['timestamp']
 
             elif short_sig:
                 position = 'SHORT'
-                entry_price = cur['close']
-                entry_time = cur['timestamp']
+                next_candle = df.iloc[i+1]
+                entry_price = next_candle['open']
+                entry_time = next_candle['timestamp']
 
     # ---- Final Report ----
     total_trades = len(trades)
     win_rate = (wins / total_trades * 100.0) if total_trades else 0.0
     total_return_pct = ((balance - entry_balance) / entry_balance * 100.0)
     avg_trade_pct = (np.mean([t["net_pct"] for t in trades]) if trades else 0.0)
+
+    # ---- Daily stats for scalping evaluation ----
+    daily_stats = []
+    if trades:
+        day_start_balance = entry_balance
+        day_end_balance = entry_balance
+        cur_day = trades[0]["exit_time"].date()
+        day_trades = 0
+        day_wins = 0
+        for t in trades:
+            t_day = t["exit_time"].date()
+            if t_day != cur_day:
+                day_return_pct = ((day_end_balance - day_start_balance) / day_start_balance * 100.0)
+                daily_stats.append({
+                    "date": cur_day.isoformat(),
+                    "trades": day_trades,
+                    "wins": day_wins,
+                    "win_rate_pct": (day_wins / day_trades * 100.0) if day_trades else 0.0,
+                    "return_pct": float(day_return_pct),
+                })
+                cur_day = t_day
+                day_start_balance = day_end_balance
+                day_trades = 0
+                day_wins = 0
+            day_trades += 1
+            day_wins += 1 if t["net_pct"] > 0 else 0
+            day_end_balance = t["balance"]
+
+        day_return_pct = ((day_end_balance - day_start_balance) / day_start_balance * 100.0)
+        daily_stats.append({
+            "date": cur_day.isoformat(),
+            "trades": day_trades,
+            "wins": day_wins,
+            "win_rate_pct": (day_wins / day_trades * 100.0) if day_trades else 0.0,
+            "return_pct": float(day_return_pct),
+        })
 
     # Return the results *and* the parameters used
     return {
@@ -525,6 +625,7 @@ def backtest_momentum_strategy(
         "win_rate_pct": float(win_rate),
         "avg_trade_net_pct": float(avg_trade_pct),
         "max_drawdown_pct": float(max_dd),
+        "daily_stats": daily_stats,
         # --- Return parameters for analysis ---
         "tp_pct": float(tp_pct),
         "sl_pct": float(sl_pct),
@@ -535,6 +636,57 @@ def backtest_momentum_strategy(
         "fee_bps": float(fee_bps),
         "slippage_bps": float(slippage_bps)
     }
+
+def run_random_daily_backtests(
+    year: int,
+    month: int,
+    samples: int,
+    symbol: str,
+    timeframe: str,
+    entry_balance: float,
+):
+    # Randomly pick days in the month and backtest each 24h slice.
+    first_day = datetime(year, month, 1)
+    if month == 12:
+        next_month = datetime(year + 1, 1, 1)
+    else:
+        next_month = datetime(year, month + 1, 1)
+    days_in_month = (next_month - first_day).days
+    samples = max(1, min(samples, days_in_month))
+    day_numbers = random.sample(range(1, days_in_month + 1), samples)
+    day_numbers.sort()
+
+    results_all = []
+    for day in day_numbers:
+        start_dt = datetime(year, month, day)
+        end_dt = start_dt + timedelta(days=1)
+        results = backtest_momentum_strategy(
+            symbol=symbol,
+            timeframe=timeframe,
+            start_date=start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            end_date=end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            entry_balance=entry_balance,
+        )
+        if results:
+            results_all.append(results)
+            print(f"Symbol: {results['symbol']}")
+            print(f"Timeframe: {results['timeframe']}")
+            print(f"Period: {results['start']} to {results['end']}")
+            print(f"Starting Balance: ${results['starting_balance']:.2f}")
+            print(f"Final Balance: ${results['final_balance']:.2f}")
+            print(f"Total Return: {results['total_return_pct']:.2f}%")
+            print(f"Total Trades: {results['total_trades']}")
+            print(f"Win Rate: {results['win_rate_pct']:.2f}%")
+            print(f"Average Trade: {results['avg_trade_net_pct']:.2f}%")
+            print(f"Max Drawdown: {results['max_drawdown_pct']:.2f}%")
+            print(f"Take Profit: {results['tp_pct']:.2f}%")
+            print(f"Stop Loss: {results['sl_pct']:.2f}%")
+            print("-" * 40)
+        else:
+            print("No results to display")
+            print("-" * 40)
+
+    return results_all
 
 # ------------------------- Runner --------------------------------------------
 async def run():
@@ -570,30 +722,20 @@ async def run():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(run())
-        # results = backtest_momentum_strategy(
-        #         symbol="BTCUSDT",
-        #         timeframe="15m", # Test other timeframes like '5m' or '1h'
-        #         start_date = "2025-07-08 00:00:00",
-        #         end_date = "2025-08-08 00:00:00",
-        #         entry_balance=2000
-        #     )
-        
-        # if results:
-        #     print(f"Symbol: {results['symbol']}")
-        #     print(f"Timeframe: {results['timeframe']}")
-        #     print(f"Period: {results['start']} to {results['end']}")
-        #     print(f"Starting Balance: ${results['starting_balance']:.2f}")
-        #     print(f"Final Balance: ${results['final_balance']:.2f}")
-        #     print(f"Total Return: {results['total_return_pct']:.2f}%")
-        #     print(f"Total Trades: {results['total_trades']}")
-        #     print(f"Win Rate: {results['win_rate_pct']:.2f}%")
-        #     print(f"Average Trade: {results['avg_trade_net_pct']:.2f}%")
-        #     print(f"Max Drawdown: {results['max_drawdown_pct']:.2f}%")
-        #     print(f"Take Profit: {results['tp_pct']:.2f}%")
-        #     print(f"Stop Loss: {results['sl_pct']:.2f}%")
-        # else:
-        #     print("No results to display")
+        RUN_LIVE = True
+        RUN_RANDOM_DAILY_BACKTEST = False
+
+        if RUN_LIVE:
+            asyncio.run(run())
+        elif RUN_RANDOM_DAILY_BACKTEST:
+            run_random_daily_backtests(
+                year=2025,
+                month=11,
+                samples=20,
+                symbol="BTCUSDT",
+                timeframe="15m",
+                entry_balance=2000,
+            )
 
     except KeyboardInterrupt:
         pass
