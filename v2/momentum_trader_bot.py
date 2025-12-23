@@ -19,7 +19,8 @@ import signal
 import sys
 import time
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
+
 import configparser
 import logging
 from typing import Optional
@@ -127,7 +128,7 @@ class PositionState:
         self.cooldown_until: Optional[datetime] = None
 
     def reset_intraday_if_needed(self):
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         if self.daily_start_date is None or self.daily_start_date.date() != today:
             self.daily_start_date = datetime.utcnow()
             self.daily_pnl = 0.0
@@ -221,17 +222,20 @@ class MomentumBot:
                 min_len = max(30, EMA_SLOW) + 2  # warmup + last open + prev/cur
                 if df.empty or len(df) < min_len:
                     await asyncio.sleep(SIGNAL_LOOP_SEC)
+                    logging.info(f"[{self.symbol}] Not enough data fetched (have {len(df)}, need {min_len}).")
                     continue
 
                 # Only act on NEWLY CLOSED candle
                 data = compute_indicators(df.iloc[:-1])
                 if len(data) < 2:
                     await asyncio.sleep(SIGNAL_LOOP_SEC)
+                    logging.info(f"[{self.symbol}] Not enough data after indicators.")
                     continue
 
                 last_candle_time = data["timestamp"].iloc[-1]
                 if self.state.last_candle_time is not None and last_candle_time == self.state.last_candle_time:
                     await asyncio.sleep(SIGNAL_LOOP_SEC)
+                    logging.info(f"[{self.symbol}] No new candle yet.")
                     continue
                 self.state.last_candle_time = last_candle_time
 
@@ -265,6 +269,7 @@ class MomentumBot:
                     self._sync_position_from_exchange()
                     if self.state.side is not None:
                         await asyncio.sleep(SIGNAL_LOOP_SEC)
+                        logging.info(f"[{self.symbol}] Position opened externally, skipping entry.")
                         continue
                     side = "BUY" if long_sig else "SELL"
                     entry_price = float(cur["close"])
@@ -274,6 +279,7 @@ class MomentumBot:
                     if usdt_amt <= 5:  # ignore dust
                         notify(f"[{self.symbol}] Skip entry: size too small (usdt={usdt_amt:.2f})")
                         await asyncio.sleep(SIGNAL_LOOP_SEC)
+                        logging.info(f"[{self.symbol}] Position size too small, skipping entry.")
                         continue
 
                     order = place_order(self.symbol, side, usdt_amount=usdt_amt)

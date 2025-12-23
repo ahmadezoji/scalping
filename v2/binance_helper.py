@@ -321,7 +321,6 @@ def get_futures_account_balance(asset):
         for balance in account_info:
             if balance['asset'] == asset:
                 available_balance = float(balance['balance'])
-                print(f"Futures Balance - Free: {available_balance}")
                 return available_balance
 
         # If the asset is not found, log a warning and return 0
