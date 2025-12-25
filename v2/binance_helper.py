@@ -141,12 +141,12 @@ def close_futures_position(symbol, position, quantity):
         log_and_print(f"Error closing position: {e}")
         return None
 def format_quantity(quantity, step_size):
-        """Format quantity to match Binance step size exactly."""
-        step_size_dec = Decimal(str(step_size))
-        precision = max(0, -step_size_dec.as_tuple().exponent)
-        quant = (Decimal(str(quantity)) // step_size_dec) * step_size_dec
-        # Force fixed-point formatting; Binance rejects scientific notation.
-        return f"{quant:.{precision}f}"
+    """Format quantity to match Binance step size exactly."""
+    step_size_dec = Decimal(str(step_size))
+    precision = max(0, -step_size_dec.as_tuple().exponent)
+    quant = (Decimal(str(quantity)) // step_size_dec) * step_size_dec
+    # Force fixed-point formatting; Binance rejects scientific notation.
+    return f"{quant:.{precision}f}"
 
 def place_order(symbol, side, usdt_amount, reduce_only=False):
     global current_quantity
@@ -154,7 +154,7 @@ def place_order(symbol, side, usdt_amount, reduce_only=False):
         ticker = client.futures_symbol_ticker(symbol=symbol)
         last_price = float(ticker['price'])
 
-        min_qty, max_qty, step_size = get_lot_size(symbol)
+        min_qty, max_qty, step_size = get_lot_size(symbol, filter_type="MARKET_LOT_SIZE")
         logging.info(f"LOT_SIZE for {symbol} - Min Qty: {min_qty}, Max Qty: {max_qty}, Step Size: {step_size}")
 
         raw_quantity = usdt_amount / last_price
@@ -162,6 +162,7 @@ def place_order(symbol, side, usdt_amount, reduce_only=False):
 
         # Format correctly for Binance
         formatted_quantity = format_quantity(quantity, step_size)
+        logging.info(f"Order qty raw={raw_quantity} formatted={formatted_quantity} step={step_size}")
 
         if Decimal(formatted_quantity) < Decimal(str(min_qty)) or Decimal(formatted_quantity) > Decimal(str(max_qty)):
             raise ValueError(f"Quantity {formatted_quantity} is out of range for {symbol}: Min {min_qty}, Max {max_qty}")
@@ -270,19 +271,28 @@ def set_margin_mode(symbol, margin_type="ISOLATED"):
 #                     )
 #     raise Exception(f"LOT_SIZE not found for symbol {symbol}")
 
-def get_lot_size(symbol):
-    """Fetch LOT_SIZE filter for the given symbol."""
+def get_lot_size(symbol, filter_type="LOT_SIZE"):
+    """Fetch size filter for the given symbol."""
     exchange_info = client.get_exchange_info()
-    for symbol_info in exchange_info['symbols']:
-        if symbol_info['symbol'] == symbol:
-            for filter_info in symbol_info['filters']:
-                if filter_info['filterType'] == 'LOT_SIZE':
-                    return (
-                        float(filter_info['minQty']),
-                        float(filter_info['maxQty']),
-                        float(filter_info['stepSize'])
-                    )
-    raise Exception(f"LOT_SIZE not found for symbol {symbol}")
+    for symbol_info in exchange_info["symbols"]:
+        if symbol_info["symbol"] == symbol:
+            target = None
+            fallback = None
+            for filter_info in symbol_info["filters"]:
+                if filter_info["filterType"] == filter_type:
+                    target = filter_info
+                    break
+                if filter_info["filterType"] == "LOT_SIZE":
+                    fallback = filter_info
+            if target is None:
+                target = fallback
+            if target:
+                return (
+                    float(target["minQty"]),
+                    float(target["maxQty"]),
+                    float(target["stepSize"]),
+                )
+    raise Exception(f"Size filter not found for symbol {symbol}")
 
 # def adjust_quantity(quantity, step_size):
 #     """Adjust quantity to the nearest step size and format to the allowed precision."""
