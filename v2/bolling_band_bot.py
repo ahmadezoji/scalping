@@ -129,6 +129,20 @@ def backtest_bollinger_strategy(
     timeframe = timeframe or TF
     entry_balance = float(entry_balance or 100.0)
 
+    # ---- Basic parameter validation ----
+    if bb_window < 5 or rsi_period < 5:
+        return None
+    if bb_std_dev <= 0:
+        return None
+    if rsi_oversold < 0 or rsi_overbought > 100:
+        return None
+    if rsi_oversold >= rsi_overbought:
+        return None
+    if tp_pct_cfg <= 0 or sl_pct_cfg <= 0:
+        return None
+    if sl_pct_cfg >= tp_pct_cfg:
+        return None
+
     tp_pct = tp_pct_cfg * 100.0
     sl_pct = sl_pct_cfg * 100.0
 
@@ -255,6 +269,7 @@ def backtest_bollinger_strategy(
         "total_trades": total_trades,
         "win_rate_pct": float(win_rate),
         "max_drawdown_pct": float(max_dd),
+        "avg_trade_pct": float(avg_trade_pct),
         "tp_pct": float(tp_pct),
         "sl_pct": float(sl_pct),
         "bb_window": bb_window,

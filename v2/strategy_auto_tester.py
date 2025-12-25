@@ -27,11 +27,14 @@ momentum_grid = {
 
 # --- Grid 2: The NEW Bollinger Band strategy ---
 bollinger_grid = {
-    "timeframe": ["5m", "15m"],
-    "bb_window": [20, 30],
-    "bb_std_dev": [2.0, 2.5],
-    "tp_pct_cfg": [0.005, 0.01],  # Tighter TP: 0.5%, 1.0%
-    "sl_pct_cfg": [0.003, 0.005], # Tighter SL: 0.3%, 0.5%
+    "timeframe": ["1m", "3m", "5m", "15m"],
+    "bb_window": [14, 20, 30],
+    "bb_std_dev": [1.8, 2.0, 2.5],
+    "rsi_period": [7, 14, 21],
+    "rsi_oversold": [25, 30, 35],
+    "rsi_overbought": [65, 70, 75],
+    "tp_pct_cfg": [0.004, 0.006, 0.01],  # 0.4%, 0.6%, 1.0%
+    "sl_pct_cfg": [0.003, 0.005, 0.008], # 0.3%, 0.5%, 0.8%
 }
 
 # --- Backtest constants (daily focus) ---
@@ -79,17 +82,18 @@ def run_optimizer():
     # --- 2. CREATE ALL COMBINATIONS ---
     
     # Get combos for each strategy
-    momentum_combos = get_combinations(momentum_grid)
-    # bollinger_combos = get_combinations(bollinger_grid)
+    # momentum_combos = get_combinations(momentum_grid)
+    bollinger_combos = get_combinations(bollinger_grid)
     
     # Add a 'strategy_name' tag to each
     # This is how we'll know which function to call
-    for p in momentum_combos: p['strategy_name'] = 'momentum'
-    # for p in bollinger_combos: p['strategy_name'] = 'bollinger'
+    # for p in momentum_combos: p['strategy_name'] = 'momentum'
+    for p in bollinger_combos:
+        p['strategy_name'] = 'bollinger'
     
     # Combine them into one giant list of jobs
     # all_combinations = bollinger_combos + momentum_combos
-    all_combinations = momentum_combos
+    all_combinations = bollinger_combos
     
     total_runs = len(all_combinations)
     log_and_print(f"--- Starting Multi-Strategy Optimization ---")
@@ -147,6 +151,9 @@ def run_optimizer():
                         timeframe=params["timeframe"],
                         bb_window=params["bb_window"],
                         bb_std_dev=params["bb_std_dev"],
+                        rsi_period=params["rsi_period"],
+                        rsi_oversold=params["rsi_oversold"],
+                        rsi_overbought=params["rsi_overbought"],
                         tp_pct_cfg=params["tp_pct_cfg"],
                         sl_pct_cfg=params["sl_pct_cfg"],
                     )
@@ -206,7 +213,7 @@ def run_optimizer():
         'positive_days_pct', 'negative_days_pct', 'flat_days_pct', 'days_tested',
         'timeframe', 'tp_pct', 'sl_pct',
         'ema_fast', 'ema_slow', 'use_vwap',
-        'bb_window', 'bb_std_dev'
+        'bb_window', 'bb_std_dev', 'rsi_period', 'rsi_oversold', 'rsi_overbought'
     ]
     # Filter for columns that actually exist in the dataframe
     available_cols = [col for col in cols if col in df.columns]
