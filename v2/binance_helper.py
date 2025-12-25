@@ -287,11 +287,14 @@ def get_lot_size(symbol, filter_type="LOT_SIZE"):
             if target is None:
                 target = fallback
             if target:
-                return (
-                    float(target["minQty"]),
-                    float(target["maxQty"]),
-                    float(target["stepSize"]),
-                )
+                min_qty = float(target["minQty"])
+                max_qty = float(target["maxQty"])
+                step_size = float(target["stepSize"])
+                if step_size <= 0 and target is not fallback and fallback:
+                    min_qty = float(fallback["minQty"])
+                    max_qty = float(fallback["maxQty"])
+                    step_size = float(fallback["stepSize"])
+                return (min_qty, max_qty, step_size)
     raise Exception(f"Size filter not found for symbol {symbol}")
 
 # def adjust_quantity(quantity, step_size):
