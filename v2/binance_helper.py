@@ -143,9 +143,10 @@ def close_futures_position(symbol, position, quantity):
 def format_quantity(quantity, step_size):
         """Format quantity to match Binance step size exactly."""
         step_size_dec = Decimal(str(step_size))
+        precision = max(0, -step_size_dec.as_tuple().exponent)
         quant = (Decimal(str(quantity)) // step_size_dec) * step_size_dec
-        # Remove scientific notation and limit to step_size precision
-        return str(quant.normalize())
+        # Force fixed-point formatting; Binance rejects scientific notation.
+        return f"{quant:.{precision}f}"
 
 def place_order(symbol, side, usdt_amount, reduce_only=False):
     global current_quantity
