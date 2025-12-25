@@ -53,6 +53,7 @@ CFG.read("config.ini")
 SYMBOLS = [s.strip() for s in CFG.get("TRADING", "SYMBOL", fallback="BTCUSDT").split(",")]
 if not SYMBOLS:
     SYMBOLS = ["BTCUSDT"]
+ENTRY_USDT = CFG.getfloat("TRADING", "entry_usdt", fallback=0.0)
 
 # Force 1-minute trading for this bot
 TF = CFG.get("STRATEGY", "timeframe", fallback="1m")
@@ -273,8 +274,11 @@ class MomentumBot:
                         continue
                     side = "BUY" if long_sig else "SELL"
                     entry_price = float(cur["close"])
-                    balance = get_futures_account_balance("USDT")
-                    usdt_amt = self._position_size_usdt(balance, entry_price)
+                    if ENTRY_USDT and ENTRY_USDT > 0:
+                        usdt_amt = ENTRY_USDT
+                    else:
+                        balance = get_futures_account_balance("USDT")
+                        usdt_amt = self._position_size_usdt(balance, entry_price)
 
                     if usdt_amt <= 5:  # ignore dust
                         notify(f"[{self.symbol}] Skip entry: size too small (usdt={usdt_amt:.2f})")
