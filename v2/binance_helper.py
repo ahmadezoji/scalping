@@ -110,10 +110,10 @@ def get_klines_all(symbol, interval, start_time=None, end_time=None, limit=100):
 
 def close_futures_position(symbol, position, quantity):
     try:
-        step_size = get_lot_size(symbol)
-        adjusted_quantity = adjust_quantity(quantity, step_size)
+        _, _, step_size = get_lot_size(symbol, filter_type="MARKET_LOT_SIZE")
+        adjusted_quantity = format_quantity(quantity, step_size)
 
-        if adjusted_quantity <= 0:
+        if Decimal(adjusted_quantity) <= Decimal("0"):
             raise ValueError(
                 "Quantity after rounding is too small for Binance limits.")
 
@@ -271,9 +271,9 @@ def set_margin_mode(symbol, margin_type="ISOLATED"):
 #                     )
 #     raise Exception(f"LOT_SIZE not found for symbol {symbol}")
 
-def get_lot_size(symbol, filter_type="LOT_SIZE"):
+def get_lot_size(symbol, filter_type="MARKET_LOT_SIZE"):
     """Fetch size filter for the given symbol."""
-    exchange_info = client.get_exchange_info()
+    exchange_info = client.futures_exchange_info()
     for symbol_info in exchange_info["symbols"]:
         if symbol_info["symbol"] == symbol:
             target = None
@@ -304,10 +304,8 @@ def get_lot_size(symbol, filter_type="LOT_SIZE"):
 #     return round(quantity, precision)
 
 def adjust_quantity(quantity, step_size):
-    """Ensure quantity is a float and adjust to the nearest step size."""
-    quantity = float(quantity)  # Convert NumPy array to float if needed
-    step_size = float(step_size)
-    return round(quantity - (quantity % step_size), 8) # Keep up to 8 decimals
+    """Backward-compatible wrapper; use format_quantity for orders."""
+    return float(format_quantity(quantity, step_size))
 
 
 def get_account_balance(asset):
@@ -364,6 +362,8 @@ def close_all_positions():
             side = 'SELL' if position_amt > 0 else 'BUY'
             # Use absolute value for order quantity
             quantity = abs(position_amt)
+            _, _, step_size = get_lot_size(symbol, filter_type="MARKET_LOT_SIZE")
+            quantity = format_quantity(quantity, step_size)
 
             # Place market order to close position
             logging.info(f"Closing position for {symbol}: {side} {quantity}")
