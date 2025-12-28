@@ -55,26 +55,26 @@ if not SYMBOLS:
     SYMBOLS = ["BTCUSDT"]
 ENTRY_USDT = CFG.getfloat("TRADING", "entry_usdt", fallback=0.0)
 
-# Force 1-minute trading for this bot
+# Strategy timeframe
 TF = CFG.get("STRATEGY", "timeframe", fallback="1m")
 
 # Strategy params with safe defaults
-EMA_FAST = CFG.getint("STRATEGY", "ema_fast", fallback=12)
-EMA_SLOW = CFG.getint("STRATEGY", "ema_slow", fallback=26)
-USE_VWAP = CFG.get("STRATEGY", "use_vwap_filter", fallback="true").lower() == "true"
+EMA_FAST = CFG.getint("STRATEGY", "ema_fast", fallback=6)
+EMA_SLOW = CFG.getint("STRATEGY", "ema_slow", fallback=20)
+USE_VWAP = CFG.get("STRATEGY", "use_vwap_filter", fallback="false").lower() == "true"
 VOLUME_CONFIRM = CFG.getfloat("STRATEGY", "volume_confirm", fallback=0.0)  # 0 => off
 
-TRAIL_PCT = CFG.getfloat("STRATEGY", "trail_percent", fallback=0.25) / 100.0   # 0.25%
-TP_PCT    = CFG.getfloat("STRATEGY", "tp_percent",    fallback=0.75) / 100.0   # 0.75%
-FS_PCT    = CFG.getfloat("STRATEGY", "failsafe_sl_percent", fallback=1.8) / 100.0  # 1.8%
+TRAIL_PCT = CFG.getfloat("STRATEGY", "trail_percent", fallback=0.15) / 100.0   # 0.15%
+TP_PCT    = CFG.getfloat("STRATEGY", "tp_percent",    fallback=0.40) / 100.0   # 0.40%
+FS_PCT    = CFG.getfloat("STRATEGY", "failsafe_sl_percent", fallback=0.30) / 100.0  # 0.30%
 
-LEVERAGE  = CFG.getint("STRATEGY", "leverage", fallback=2)
+LEVERAGE  = CFG.getint("STRATEGY", "leverage", fallback=1)
 RISK_PER_TRADE_PCT = CFG.getfloat("STRATEGY", "risk_per_trade_pct", fallback=0.25) / 100.0
 DAILY_LOSS_CAP_PCT = CFG.getfloat("STRATEGY", "daily_loss_cap_pct", fallback=2.0) / 100.0
-COOLDOWN_MIN       = CFG.getint("STRATEGY", "cooldown_minutes", fallback=15)
+COOLDOWN_MIN       = CFG.getint("STRATEGY", "cooldown_minutes", fallback=2)
 
 # Management pacing
-SIGNAL_LOOP_SEC = CFG.getint("STRATEGY", "signal_poll_seconds", fallback=5)   # check for new candle
+SIGNAL_LOOP_SEC = CFG.getint("STRATEGY", "signal_poll_seconds", fallback=55)   # check for new candle
 RISK_LOOP_SEC   = CFG.getint("STRATEGY", "risk_poll_seconds",   fallback=1)   # manage trailing/TP/FS
 
 # Telegram toggle (uses your index->telegram if needed); here we just reuse log_and_print
