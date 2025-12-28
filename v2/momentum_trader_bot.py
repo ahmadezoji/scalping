@@ -49,6 +49,10 @@ logging.basicConfig(
 CFG = configparser.ConfigParser()
 CFG.read("config.ini")
 
+STRATEGY_SECTION = "STRATEGY_MOMENTUM"
+if not CFG.has_section(STRATEGY_SECTION) and CFG.has_section("STRATEGY"):
+    STRATEGY_SECTION = "STRATEGY"
+
 # Trading pair(s)
 SYMBOLS = [s.strip() for s in CFG.get("TRADING", "SYMBOL", fallback="BTCUSDT").split(",")]
 if not SYMBOLS:
@@ -56,26 +60,26 @@ if not SYMBOLS:
 ENTRY_USDT = CFG.getfloat("TRADING", "entry_usdt", fallback=0.0)
 
 # Strategy timeframe
-TF = CFG.get("STRATEGY", "timeframe", fallback="1m")
+TF = CFG.get(STRATEGY_SECTION, "timeframe", fallback="1m")
 
 # Strategy params with safe defaults
-EMA_FAST = CFG.getint("STRATEGY", "ema_fast", fallback=6)
-EMA_SLOW = CFG.getint("STRATEGY", "ema_slow", fallback=20)
-USE_VWAP = CFG.get("STRATEGY", "use_vwap_filter", fallback="false").lower() == "true"
-VOLUME_CONFIRM = CFG.getfloat("STRATEGY", "volume_confirm", fallback=0.0)  # 0 => off
+EMA_FAST = CFG.getint(STRATEGY_SECTION, "ema_fast", fallback=6)
+EMA_SLOW = CFG.getint(STRATEGY_SECTION, "ema_slow", fallback=20)
+USE_VWAP = CFG.get(STRATEGY_SECTION, "use_vwap_filter", fallback="false").lower() == "true"
+VOLUME_CONFIRM = CFG.getfloat(STRATEGY_SECTION, "volume_confirm", fallback=0.0)  # 0 => off
 
-TRAIL_PCT = CFG.getfloat("STRATEGY", "trail_percent", fallback=0.15) / 100.0   # 0.15%
-TP_PCT    = CFG.getfloat("STRATEGY", "tp_percent",    fallback=0.40) / 100.0   # 0.40%
-FS_PCT    = CFG.getfloat("STRATEGY", "failsafe_sl_percent", fallback=0.30) / 100.0  # 0.30%
+TRAIL_PCT = CFG.getfloat(STRATEGY_SECTION, "trail_percent", fallback=0.15) / 100.0   # 0.15%
+TP_PCT    = CFG.getfloat(STRATEGY_SECTION, "tp_percent",    fallback=0.40) / 100.0   # 0.40%
+FS_PCT    = CFG.getfloat(STRATEGY_SECTION, "failsafe_sl_percent", fallback=0.30) / 100.0  # 0.30%
 
-LEVERAGE  = CFG.getint("STRATEGY", "leverage", fallback=1)
-RISK_PER_TRADE_PCT = CFG.getfloat("STRATEGY", "risk_per_trade_pct", fallback=0.25) / 100.0
-DAILY_LOSS_CAP_PCT = CFG.getfloat("STRATEGY", "daily_loss_cap_pct", fallback=2.0) / 100.0
-COOLDOWN_MIN       = CFG.getint("STRATEGY", "cooldown_minutes", fallback=2)
+LEVERAGE  = CFG.getint(STRATEGY_SECTION, "leverage", fallback=1)
+RISK_PER_TRADE_PCT = CFG.getfloat(STRATEGY_SECTION, "risk_per_trade_pct", fallback=0.25) / 100.0
+DAILY_LOSS_CAP_PCT = CFG.getfloat(STRATEGY_SECTION, "daily_loss_cap_pct", fallback=2.0) / 100.0
+COOLDOWN_MIN       = CFG.getint(STRATEGY_SECTION, "cooldown_minutes", fallback=2)
 
 # Management pacing
-SIGNAL_LOOP_SEC = CFG.getint("STRATEGY", "signal_poll_seconds", fallback=55)   # check for new candle
-RISK_LOOP_SEC   = CFG.getint("STRATEGY", "risk_poll_seconds",   fallback=1)   # manage trailing/TP/FS
+SIGNAL_LOOP_SEC = CFG.getint(STRATEGY_SECTION, "signal_poll_seconds", fallback=55)   # check for new candle
+RISK_LOOP_SEC   = CFG.getint(STRATEGY_SECTION, "risk_poll_seconds",   fallback=1)   # manage trailing/TP/FS
 
 # Telegram toggle (uses your index->telegram if needed); here we just reuse log_and_print
 def notify(msg: str):
