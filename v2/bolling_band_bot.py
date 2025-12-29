@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Bollinger Band Mean-Reversion Trading Bot
-- Entry on EMA bullish/bearish crossover filtered by VWAP side
-- Management with trailing stop, take-profit, and fail-safe stop
+- Entry on snap-back inside Bollinger Bands + RSI confirmation
+- Optional VWAP/volume filters, TP/FailSafe, and trailing stop
 - Uses user's index.py helpers (client, place_order, get_klines_all, set_leverage, set_margin_mode, etc.)
 - Designed to run as a long-lived service on a server
 
@@ -31,7 +31,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 from binance_helper import log_and_print, set_margin_mode, set_leverage, get_futures_account_balance, place_order, get_klines_all, client
-from vwap_helper import calculate_vwap
+# from vwap_helper import calculate_vwap
 
 # ---- import your helpers -----------------------------------------------------
 
@@ -61,10 +61,9 @@ ENTRY_USDT = CFG.getfloat("TRADING", "entry_usdt", fallback=0.0)
 TF = CFG.get(STRATEGY_SECTION, "timeframe", fallback="1m")
 
 # Strategy params with safe defaults
-EMA_FAST = CFG.getint(STRATEGY_SECTION, "ema_fast", fallback=12)
-EMA_SLOW = CFG.getint(STRATEGY_SECTION, "ema_slow", fallback=26)
-USE_VWAP = CFG.get(STRATEGY_SECTION, "use_vwap_filter", fallback="true").lower() == "true"
+USE_VWAP = CFG.get(STRATEGY_SECTION, "use_vwap_filter", fallback="false").lower() == "true"
 VOLUME_CONFIRM = CFG.getfloat(STRATEGY_SECTION, "volume_confirm", fallback=0.0)  # 0 => off
+USE_TRAILING_STOP = CFG.get(STRATEGY_SECTION, "use_trailing_stop", fallback="false").lower() == "true"
 
 TRAIL_PCT = CFG.getfloat(STRATEGY_SECTION, "trail_percent", fallback=0.25) / 100.0   # 0.25%
 TP_PCT    = CFG.getfloat(STRATEGY_SECTION, "tp_percent",    fallback=0.75) / 100.0   # 0.75%
@@ -108,6 +107,13 @@ def rsi(s: pd.Series, period: int) -> pd.Series:
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
+def compute_vwap(df: pd.DataFrame) -> pd.Series:
+    if "timestamp" not in df.columns:
+        raise ValueError("DataFrame must include 'timestamp'")
+    day = df["timestamp"].dt.date
+    pv = df["close"] * df["volume"]
+    return pv.groupby(day).cumsum() / df["volume"].groupby(day).cumsum()
+
 # ------------------------- Live Trading Helpers ------------------------------
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
@@ -116,6 +122,8 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["bb_high"] = out["bb_mid"] + (out["bb_std"] * BB_STD_DEV)
     out["bb_low"] = out["bb_mid"] - (out["bb_std"] * BB_STD_DEV)
     out["rsi"] = rsi(out["close"], RSI_PERIOD)
+    if USE_VWAP:
+        out["vwap"] = compute_vwap(out)
     return out
 
 # ------------------------- State per symbol -----------------------------------
@@ -170,7 +178,8 @@ class BollingerBot:
         notify(
             f"[{self.symbol}] Ready | TF={TF} BB={BB_WINDOW}/{BB_STD_DEV} RSI={RSI_PERIOD} "
             f"({RSI_OVERSOLD}/{RSI_OVERBOUGHT}) TP={TP_PCT*100:.2f}% FS={FS_PCT*100:.2f}% "
-            f"LEV={LEVERAGE} Risk/Trade={RISK_PER_TRADE_PCT*100:.2f}%"
+            f"VWAP={USE_VWAP} VolConfirm={VOLUME_CONFIRM} Trail={TRAIL_PCT*100:.2f}% "
+            f"UseTrail={USE_TRAILING_STOP} LEV={LEVERAGE} Risk/Trade={RISK_PER_TRADE_PCT*100:.2f}%"
         )
 
     def _sync_position_from_exchange(self) -> None:
@@ -243,13 +252,30 @@ class BollingerBot:
                     await asyncio.sleep(SIGNAL_LOOP_SEC)
                     continue
 
-                long_sig = (prev["close"] < prev["bb_low"]) and (cur["close"] >= cur["bb_low"]) and (cur["rsi"] < RSI_OVERSOLD)
-                short_sig = (prev["close"] > prev["bb_high"]) and (cur["close"] <= cur["bb_high"]) and (cur["rsi"] > RSI_OVERBOUGHT)
+                base_long = (prev["close"] < prev["bb_low"]) and (cur["close"] >= cur["bb_low"]) and (cur["rsi"] < RSI_OVERSOLD)
+                base_short = (prev["close"] > prev["bb_high"]) and (cur["close"] <= cur["bb_high"]) and (cur["rsi"] > RSI_OVERBOUGHT)
+                if USE_VWAP and "vwap" in cur:
+                    vwap_ok_long = cur["close"] <= cur["vwap"]
+                    vwap_ok_short = cur["close"] >= cur["vwap"]
+                else:
+                    vwap_ok_long = True
+                    vwap_ok_short = True
+                if VOLUME_CONFIRM > 0:
+                    vol_avg = data["volume"].tail(20).mean()
+                    vol_ok = cur["volume"] >= VOLUME_CONFIRM * vol_avg
+                else:
+                    vol_avg = None
+                    vol_ok = True
+                long_sig = base_long and vwap_ok_long and vol_ok
+                short_sig = base_short and vwap_ok_short and vol_ok
 
                 logging.info(
                     f"[{self.symbol}] t={cur.name} close={cur.close:.2f} "
                     f"bb_low={cur.bb_low:.2f} bb_high={cur.bb_high:.2f} rsi={cur.rsi:.2f} "
-                    f"long_sig={long_sig} short_sig={short_sig}"
+                    f"vwap={getattr(cur,'vwap',float('nan')):.2f} vol={cur['volume']:.2f} "
+                    f"vwap_ok_long={vwap_ok_long} vwap_ok_short={vwap_ok_short} vol_ok={vol_ok} "
+                    f"(mult={VOLUME_CONFIRM}, avg20={vol_avg if vol_avg else 0}) "
+                    f"base_long={base_long} base_short={base_short} long_sig={long_sig} short_sig={short_sig}"
                 )
 
                 if self.state.side is None and (long_sig or short_sig):
@@ -309,20 +335,36 @@ class BollingerBot:
                 last_price = float(ticker["price"])
 
                 if self.state.side == "LONG":
+                    if self.state.high_since_entry is None:
+                        self.state.high_since_entry = last_price
+                    self.state.high_since_entry = max(self.state.high_since_entry, last_price)
                     tp_price = self.state.entry_price * (1 + TP_PCT)
                     if last_price >= tp_price:
                         await self._exit_market("TakeProfit", last_price)
                         continue
+                    if USE_TRAILING_STOP and TRAIL_PCT > 0:
+                        trail_price = self.state.high_since_entry * (1 - TRAIL_PCT)
+                        if last_price <= trail_price:
+                            await self._exit_market("TrailingStop", last_price)
+                            continue
                     sl_price = self.state.entry_price * (1 - FS_PCT)
                     if last_price <= sl_price:
                         await self._exit_market("FailSafe", last_price)
                         continue
 
                 elif self.state.side == "SHORT":
+                    if self.state.low_since_entry is None:
+                        self.state.low_since_entry = last_price
+                    self.state.low_since_entry = min(self.state.low_since_entry, last_price)
                     tp_price = self.state.entry_price * (1 - TP_PCT)
                     if last_price <= tp_price:
                         await self._exit_market("TakeProfit", last_price)
                         continue
+                    if USE_TRAILING_STOP and TRAIL_PCT > 0:
+                        trail_price = self.state.low_since_entry * (1 + TRAIL_PCT)
+                        if last_price >= trail_price:
+                            await self._exit_market("TrailingStop", last_price)
+                            continue
                     sl_price = self.state.entry_price * (1 + FS_PCT)
                     if last_price >= sl_price:
                         await self._exit_market("FailSafe", last_price)
@@ -347,7 +389,7 @@ class BollingerBot:
             pnl_pct *= 100.0
             self.state.daily_pnl += (pnl_pct / 100.0) * (usdt_amt / LEVERAGE)
 
-            if reason in ("FailSafe",) and pnl_pct < 0:
+            if reason in ("FailSafe", "TrailingStop") and pnl_pct < 0:
                 self.state.sl_streak += 1
                 if self.state.sl_streak >= 3:
                     self.state.cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=COOLDOWN_MIN)
