@@ -54,7 +54,10 @@ if not CFG.has_section(STRATEGY_SECTION) and CFG.has_section("STRATEGY"):
     STRATEGY_SECTION = "STRATEGY"
 
 # Trading pair(s)
-SYMBOLS = [s.strip() for s in CFG.get("TRADING", "SYMBOL", fallback="BTCUSDT").split(",")]
+symbol_cfg = CFG.get(STRATEGY_SECTION, "SYMBOL", fallback=None)
+if symbol_cfg is None:
+    symbol_cfg = CFG.get("TRADING", "SYMBOL", fallback="BTCUSDT")
+SYMBOLS = [s.strip() for s in symbol_cfg.split(",")]
 if not SYMBOLS:
     SYMBOLS = ["BTCUSDT"]
 ENTRY_USDT = CFG.getfloat("TRADING", "entry_usdt", fallback=0.0)
