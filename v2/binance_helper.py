@@ -148,7 +148,7 @@ def format_quantity(quantity, step_size):
     # Force fixed-point formatting; Binance rejects scientific notation.
     return f"{quant:.{precision}f}"
 
-def place_order(symbol, side, usdt_amount, reduce_only=False):
+def place_order(symbol, side, usdt_amount, reduce_only=False, strategy_name=None):
     global current_quantity
     try:
         ticker = client.futures_symbol_ticker(symbol=symbol)
@@ -178,11 +178,14 @@ def place_order(symbol, side, usdt_amount, reduce_only=False):
         logging.info(f"Order placed: {side} {formatted_quantity} of {symbol}. Order ID: {order['orderId']}")
         
         # Send message to Telegram group
+        strat_line = f"🧠 <b>Strategy:</b> {strategy_name}\n" if strategy_name else ""
         message = (
             f"🚀 <b>New Order Placed</b> 🚀\n"
+            f"{strat_line}"
             f"📈 <b>Symbol:</b> {symbol}\n"
             f"🔁 <b>Action:</b> {side}\n"
-            f"💵 <b>Quantity:</b> {quantity}\n"
+            f"💵 <b>Entry Amount:</b> {usdt_amount:.2f} USDT\n"
+            f"📦 <b>Quantity:</b> {formatted_quantity}\n"
             f"💰 <b>Price:</b> {last_price}\n"
         )
         send_telegram_message(message)

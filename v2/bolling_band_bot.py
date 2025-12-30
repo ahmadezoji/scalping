@@ -298,7 +298,7 @@ class BollingerBot:
                         logging.info(f"[{self.symbol}] Position size too small, skipping entry.")
                         continue
 
-                    order = place_order(self.symbol, side, usdt_amount=usdt_amt)
+                    order = place_order(self.symbol, side, usdt_amount=usdt_amt, strategy_name="BollingerRSI")
                     if order:
                         entry_price = self._extract_avg_price(order, entry_price)
                         qty = float(order.get("executedQty") or order.get("origQty") or 0)
@@ -381,7 +381,7 @@ class BollingerBot:
             usdt_amt = self.state.qty * last_price
         else:
             usdt_amt = self.state.qty_usdt
-        order = place_order(self.symbol, out_side, usdt_amount=usdt_amt, reduce_only=True)
+        order = place_order(self.symbol, out_side, usdt_amount=usdt_amt, reduce_only=True, strategy_name="BollingerRSI")
         if order:
             exit_price = self._extract_avg_price(order, last_price)
             pnl_pct = ((exit_price - self.state.entry_price) / self.state.entry_price) if self.state.side == "LONG" \
