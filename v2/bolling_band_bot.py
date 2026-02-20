@@ -574,6 +574,7 @@ def backtest_bollinger_strategy(
     reentry_min_body_pct=REENTRY_MIN_BODY_PCT,
     cooldown_bars_after_loss=COOLDOWN_BARS_AFTER_LOSS,
     use_public_mainnet_klines=False,
+    max_profit_factor_cap=5.0,
 ):
     symbol = symbol or SYMBOLS[0]
     timeframe = timeframe or TF
@@ -788,7 +789,18 @@ def backtest_bollinger_strategy(
 
     gross_profit = sum(t["net_pct"] for t in trades if t["net_pct"] > 0)
     gross_loss = abs(sum(t["net_pct"] for t in trades if t["net_pct"] < 0))
-    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (float("inf") if gross_profit > 0 else 0.0)
+    has_losses = gross_loss > 0
+    if has_losses:
+        profit_factor_raw = gross_profit / gross_loss
+    elif gross_profit > 0:
+        # No-loss sample can happen with too-few trades; keep raw as None.
+        profit_factor_raw = None
+    else:
+        profit_factor_raw = 0.0
+    if profit_factor_raw is None:
+        profit_factor_capped = float(max_profit_factor_cap)
+    else:
+        profit_factor_capped = float(min(max(float(profit_factor_raw), 0.0), float(max_profit_factor_cap)))
 
     return {
         "strategy_name": "BollingerRSI",
@@ -803,7 +815,11 @@ def backtest_bollinger_strategy(
         "win_rate_pct": float(win_rate),
         "max_drawdown_pct": float(max_dd),
         "avg_trade_pct": float(avg_trade_pct),
-        "profit_factor": float(profit_factor) if np.isfinite(profit_factor) else float(999.0),
+        # Keep `profit_factor` for backward compatibility; use capped value for ranking.
+        "profit_factor": float(profit_factor_capped),
+        "profit_factor_raw": None if profit_factor_raw is None else float(profit_factor_raw),
+        "profit_factor_capped": float(profit_factor_capped),
+        "has_losses": bool(has_losses),
         "entry_mode": entry_mode,
         "tp_pct": float(tp_pct_cfg * 100.0),
         "sl_pct": float(sl_pct_cfg * 100.0),
