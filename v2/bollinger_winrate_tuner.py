@@ -243,6 +243,13 @@ def robust_wf_score(agg: dict):
     return (win * 4.0) + (ret * 2.0) + (pf * 1.0) - (win_std * 0.40) - (ret_std * 0.75)
 
 
+def write_checkpoint(path: str, payload: dict):
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, default=str)
+    os.replace(tmp, path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Robust winrate-first Bollinger tuner")
     parser.add_argument("--symbol", default="BTCUSDT")
@@ -261,7 +268,8 @@ def main():
     parser.add_argument("--sleep-ms", type=int, default=120, help="Throttle between API calls")
     parser.add_argument("--use-public-mainnet-klines", action="store_true")
     parser.add_argument("--allow-empty-report", action="store_true")
-    parser.add_argument("--max-coarse-evals", type=int, default=0, help="0 means all")
+    parser.add_argument("--max-coarse-evals", type=int, default=8000, help="0 means all (very slow)")
+    parser.add_argument("--checkpoint-every", type=int, default=250, help="Write progress checkpoint every N coarse evals")
     args = parser.parse_args()
 
     use_testnet = load_use_testnet()
@@ -271,10 +279,22 @@ def main():
             "Recommendation: rerun with --use-public-mainnet-klines."
         )
 
+    out_dir = os.path.join(os.path.dirname(__file__), "reports")
+    os.makedirs(out_dir, exist_ok=True)
+    run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    checkpoint_path = os.path.join(out_dir, f"bollinger_winrate_progress_{run_id}.json")
+
     # Preflight
     cg = coarse_grid()
     if not cg:
         raise RuntimeError("coarse grid is empty")
+    total_grid = len(cg)
+    planned = total_grid if args.max_coarse_evals == 0 else min(args.max_coarse_evals, total_grid)
+    print(f"coarse grid total={total_grid}, planned_evals={planned}")
+    if args.max_coarse_evals == 0 and total_grid > 20000:
+        print("WARNING: Full coarse grid is very large and can take many hours/days.")
+        print("Recommendation: set --max-coarse-evals 5000..20000.")
+
     baseline_params = dict(cg[0])
     if args.use_public_mainnet_klines:
         baseline_params["use_public_mainnet_klines"] = True
@@ -284,11 +304,33 @@ def main():
             "Preflight backtest returned no data/results. "
             "Likely causes: historical fetch errors, API issues, or invalid date range."
         )
+    write_checkpoint(
+        checkpoint_path,
+        {
+            "status": "running",
+            "stage": "preflight_done",
+            "meta": {
+                "generated_at_utc": datetime.utcnow().isoformat(),
+                "symbol": args.symbol,
+                "timeframe": args.timeframe,
+                "start": args.start,
+                "end": args.end,
+                "planned_coarse_evals": planned,
+                "checkpoint_every": args.checkpoint_every,
+            },
+            "progress": {"coarse_attempted": 0, "coarse_ok": 0, "coarse_failed": 0},
+            "top_coarse": [],
+            "top_fine": [],
+            "walk_forward": [],
+        },
+    )
+    print(f"progress checkpoint: {checkpoint_path}")
 
     print("== Coarse search ==")
     coarse_rows = []
     coarse_failed = 0
     coarse_attempted = 0
+    start_ts = time.time()
     for idx, params0 in enumerate(cg, 1):
         if args.max_coarse_evals > 0 and idx > args.max_coarse_evals:
             break
@@ -311,6 +353,38 @@ def main():
             "eligible": eligible,
             "ineligibility_reasons": reasons,
         })
+        if args.checkpoint_every > 0 and coarse_attempted % args.checkpoint_every == 0:
+            coarse_rows.sort(key=lambda x: (x["eligible"], x["score"]), reverse=True)
+            elapsed = max(1e-6, time.time() - start_ts)
+            speed = coarse_attempted / elapsed
+            remain = max(planned - coarse_attempted, 0)
+            eta_sec = remain / speed if speed > 0 else None
+            write_checkpoint(
+                checkpoint_path,
+                {
+                    "status": "running",
+                    "stage": "coarse",
+                    "meta": {
+                        "generated_at_utc": datetime.utcnow().isoformat(),
+                        "symbol": args.symbol,
+                        "timeframe": args.timeframe,
+                        "start": args.start,
+                        "end": args.end,
+                        "planned_coarse_evals": planned,
+                        "checkpoint_every": args.checkpoint_every,
+                    },
+                    "progress": {
+                        "coarse_attempted": coarse_attempted,
+                        "coarse_ok": len(coarse_rows),
+                        "coarse_failed": coarse_failed,
+                        "coarse_speed_eval_per_sec": speed,
+                        "coarse_eta_seconds": eta_sec,
+                    },
+                    "top_coarse": coarse_rows[: args.top_k],
+                    "top_fine": [],
+                    "walk_forward": [],
+                },
+            )
         if args.sleep_ms > 0:
             time.sleep(args.sleep_ms / 1000.0)
 
@@ -436,6 +510,7 @@ def main():
     wf_table.sort(key=lambda x: (x["eligible"], x["robust_score"]), reverse=True)
 
     report = {
+        "status": "completed",
         "meta": {
             "generated_at_utc": datetime.utcnow().isoformat(),
             "symbol": args.symbol,
@@ -461,17 +536,16 @@ def main():
             "fine_ok": len(fine_rows),
             "fine_failed": fine_failed,
             "fine_eligible": len(eligible_fine),
+            "progress_checkpoint": checkpoint_path,
         },
         "top_coarse": top_coarse,
         "top_fine": top_fine,
         "walk_forward": wf_table[: args.top_k],
     }
-
-    out_dir = os.path.join(os.path.dirname(__file__), "reports")
-    os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"bollinger_winrate_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, default=str)
+    write_checkpoint(checkpoint_path, report)
     print(f"report written: {out_path}")
 
 
