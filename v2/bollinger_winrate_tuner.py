@@ -18,6 +18,8 @@ import sys
 import time
 from datetime import datetime, timedelta
 
+import pandas as pd
+
 # Ensure config.ini is resolved relative to this script.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(SCRIPT_DIR)
@@ -56,9 +58,57 @@ def load_use_testnet() -> bool:
     return cfg.getboolean("TRADING", "use_testnet", fallback=False)
 
 
-def evaluate(symbol: str, timeframe: str, start: datetime, end: datetime, entry_balance: float, params: dict, max_pf_cap: float):
+def fetch_historical_df(symbol: str, timeframe: str, start: datetime, end: datetime, use_public_mainnet_klines: bool):
+    if use_public_mainnet_klines:
+        from binance.client import Client as BinanceClient
+        hist_client = BinanceClient()
+    else:
+        from binance_helper import client as hist_client
+
+    klines_list = hist_client.get_historical_klines(
+        symbol, timeframe, start_str=fmt(start), end_str=fmt(end)
+    )
+    if not klines_list:
+        return pd.DataFrame()
+    df = pd.DataFrame(
+        klines_list,
+        columns=[
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "close_time",
+            "quote_asset_volume",
+            "number_of_trades",
+            "taker_buy_base_asset_volume",
+            "taker_buy_quote_asset_volume",
+            "ignore",
+        ],
+    )
+    if df.empty:
+        return pd.DataFrame()
+    df = df[["timestamp", "open", "high", "low", "close", "volume"]].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col])
+    return df
+
+
+def evaluate(
+    symbol: str,
+    timeframe: str,
+    start: datetime,
+    end: datetime,
+    entry_balance: float,
+    params: dict,
+    max_pf_cap: float,
+    historical_df=None,
+):
     payload = dict(params)
     payload["max_profit_factor_cap"] = max_pf_cap
+    payload["historical_df"] = historical_df
     return backtest_bollinger_strategy(
         symbol=symbol,
         timeframe=timeframe,
@@ -99,8 +149,7 @@ def candidate_dict(t):
     }
 
 
-def coarse_grid():
-    # Conservative band
+def _coarse_products():
     conservative = itertools.product(
         [12, 14, 16],
         [1.7, 1.8, 1.9],
@@ -115,7 +164,6 @@ def coarse_grid():
         [0.008, 0.009, 0.010],
         [0.005],
     )
-    # Balanced band
     balanced = itertools.product(
         [12, 14, 16],
         [1.7, 1.8, 1.9],
@@ -130,13 +178,27 @@ def coarse_grid():
         [0.008, 0.009, 0.010],
         [0.005, 0.006],
     )
-    out = [candidate_dict(x) for x in conservative]
-    out.extend(candidate_dict(x) for x in balanced)
-    # Deduplicate by stable json key
-    uniq = {}
-    for p in out:
-        uniq[json.dumps(p, sort_keys=True)] = p
-    return list(uniq.values())
+    return conservative, balanced
+
+
+def coarse_grid_count() -> int:
+    # Conservative: 3*3*4*5*3*1*1*1*1*1*3*1
+    conservative_n = 1620
+    # Balanced: 3*3*4*5*3*3*3*2*2*2*3*2
+    balanced_n = 233280
+    return conservative_n + balanced_n
+
+
+def coarse_grid_iter():
+    seen = set()
+    conservative, balanced = _coarse_products()
+    for raw in itertools.chain(conservative, balanced):
+        p = candidate_dict(raw)
+        k = json.dumps(p, sort_keys=True)
+        if k in seen:
+            continue
+        seen.add(k)
+        yield p
 
 
 def fine_variants(base: dict):
@@ -284,22 +346,133 @@ def main():
     run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     checkpoint_path = os.path.join(out_dir, f"bollinger_winrate_progress_{run_id}.json")
 
-    # Preflight
-    cg = coarse_grid()
-    if not cg:
+    # Build grid metadata first so progress can be written immediately.
+    total_grid = coarse_grid_count()
+    if total_grid <= 0:
         raise RuntimeError("coarse grid is empty")
-    total_grid = len(cg)
     planned = total_grid if args.max_coarse_evals == 0 else min(args.max_coarse_evals, total_grid)
     print(f"coarse grid total={total_grid}, planned_evals={planned}")
     if args.max_coarse_evals == 0 and total_grid > 20000:
         print("WARNING: Full coarse grid is very large and can take many hours/days.")
         print("Recommendation: set --max-coarse-evals 5000..20000.")
 
-    baseline_params = dict(cg[0])
+    write_checkpoint(
+        checkpoint_path,
+        {
+            "status": "running",
+            "stage": "bootstrap",
+            "meta": {
+                "generated_at_utc": datetime.utcnow().isoformat(),
+                "symbol": args.symbol,
+                "timeframe": args.timeframe,
+                "start": args.start,
+                "end": args.end,
+                "planned_coarse_evals": planned,
+                "checkpoint_every": args.checkpoint_every,
+            },
+            "progress": {"coarse_attempted": 0, "coarse_ok": 0, "coarse_failed": 0},
+            "top_coarse": [],
+            "top_fine": [],
+            "walk_forward": [],
+        },
+    )
+    print(f"progress checkpoint: {checkpoint_path}")
+
+    start_dt = dt(args.start)
+    end_dt = dt(args.end)
+    write_checkpoint(
+        checkpoint_path,
+        {
+            "status": "running",
+            "stage": "fetching_historical_data",
+            "meta": {
+                "generated_at_utc": datetime.utcnow().isoformat(),
+                "symbol": args.symbol,
+                "timeframe": args.timeframe,
+                "start": args.start,
+                "end": args.end,
+                "planned_coarse_evals": planned,
+                "checkpoint_every": args.checkpoint_every,
+            },
+            "progress": {"coarse_attempted": 0, "coarse_ok": 0, "coarse_failed": 0},
+            "top_coarse": [],
+            "top_fine": [],
+            "walk_forward": [],
+        },
+    )
+
+    historical_df = fetch_historical_df(
+        args.symbol,
+        args.timeframe,
+        start_dt,
+        end_dt,
+        args.use_public_mainnet_klines,
+    )
+    if historical_df.empty and not args.allow_empty_report:
+        write_checkpoint(
+            checkpoint_path,
+            {
+                "status": "failed",
+                "stage": "fetching_historical_data",
+                "error": "historical_dataset_empty",
+                "meta": {
+                    "generated_at_utc": datetime.utcnow().isoformat(),
+                    "symbol": args.symbol,
+                    "timeframe": args.timeframe,
+                    "start": args.start,
+                    "end": args.end,
+                    "planned_coarse_evals": planned,
+                    "checkpoint_every": args.checkpoint_every,
+                },
+                "progress": {"coarse_attempted": 0, "coarse_ok": 0, "coarse_failed": 0},
+                "top_coarse": [],
+                "top_fine": [],
+                "walk_forward": [],
+            },
+        )
+        raise RuntimeError(
+            "Historical dataset fetch returned empty. "
+            "Check symbol/timeframe/date range/API connectivity."
+        )
+
+    try:
+        baseline_params = dict(next(coarse_grid_iter()))
+    except StopIteration:
+        raise RuntimeError("coarse grid iterator is empty")
     if args.use_public_mainnet_klines:
         baseline_params["use_public_mainnet_klines"] = True
-    preflight = evaluate(args.symbol, args.timeframe, dt(args.start), dt(args.end), args.entry_balance, baseline_params, args.max_profit_factor_cap)
+    preflight = evaluate(
+        args.symbol,
+        args.timeframe,
+        start_dt,
+        end_dt,
+        args.entry_balance,
+        baseline_params,
+        args.max_profit_factor_cap,
+        historical_df=historical_df,
+    )
     if not preflight and not args.allow_empty_report:
+        write_checkpoint(
+            checkpoint_path,
+            {
+                "status": "failed",
+                "stage": "preflight",
+                "error": "preflight_backtest_failed",
+                "meta": {
+                    "generated_at_utc": datetime.utcnow().isoformat(),
+                    "symbol": args.symbol,
+                    "timeframe": args.timeframe,
+                    "start": args.start,
+                    "end": args.end,
+                    "planned_coarse_evals": planned,
+                    "checkpoint_every": args.checkpoint_every,
+                },
+                "progress": {"coarse_attempted": 0, "coarse_ok": 0, "coarse_failed": 0},
+                "top_coarse": [],
+                "top_fine": [],
+                "walk_forward": [],
+            },
+        )
         raise RuntimeError(
             "Preflight backtest returned no data/results. "
             "Likely causes: historical fetch errors, API issues, or invalid date range."
@@ -324,21 +497,20 @@ def main():
             "walk_forward": [],
         },
     )
-    print(f"progress checkpoint: {checkpoint_path}")
 
     print("== Coarse search ==")
     coarse_rows = []
     coarse_failed = 0
     coarse_attempted = 0
     start_ts = time.time()
-    for idx, params0 in enumerate(cg, 1):
+    for idx, params0 in enumerate(coarse_grid_iter(), 1):
         if args.max_coarse_evals > 0 and idx > args.max_coarse_evals:
             break
         coarse_attempted += 1
         params = dict(params0)
         if args.use_public_mainnet_klines:
             params["use_public_mainnet_klines"] = True
-        result = evaluate(args.symbol, args.timeframe, dt(args.start), dt(args.end), args.entry_balance, params, args.max_profit_factor_cap)
+        result = evaluate(args.symbol, args.timeframe, start_dt, end_dt, args.entry_balance, params, args.max_profit_factor_cap, historical_df=historical_df)
         if not result:
             coarse_failed += 1
             if args.sleep_ms > 0:
@@ -409,7 +581,7 @@ def main():
             params = dict(params0)
             if args.use_public_mainnet_klines:
                 params["use_public_mainnet_klines"] = True
-            result = evaluate(args.symbol, args.timeframe, dt(args.start), dt(args.end), args.entry_balance, params, args.max_profit_factor_cap)
+            result = evaluate(args.symbol, args.timeframe, start_dt, end_dt, args.entry_balance, params, args.max_profit_factor_cap, historical_df=historical_df)
             if not result:
                 fine_failed += 1
                 if args.sleep_ms > 0:
@@ -448,8 +620,8 @@ def main():
         params = row["params"]
         fold_rows = []
         for (train_start, train_end, val_start, val_end) in splits:
-            train_res = evaluate(args.symbol, args.timeframe, train_start, train_end, args.entry_balance, params, args.max_profit_factor_cap)
-            val_res = evaluate(args.symbol, args.timeframe, val_start, val_end, args.entry_balance, params, args.max_profit_factor_cap)
+            train_res = evaluate(args.symbol, args.timeframe, train_start, train_end, args.entry_balance, params, args.max_profit_factor_cap, historical_df=historical_df)
+            val_res = evaluate(args.symbol, args.timeframe, val_start, val_end, args.entry_balance, params, args.max_profit_factor_cap, historical_df=historical_df)
             if not train_res or not val_res:
                 continue
 
@@ -551,3 +723,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
