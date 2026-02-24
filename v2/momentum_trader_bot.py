@@ -49,33 +49,44 @@ logging.basicConfig(
 CFG = configparser.ConfigParser()
 CFG.read("config.ini")
 
+STRATEGY_SECTION = "STRATEGY_MOMENTUM"
+if not CFG.has_section(STRATEGY_SECTION) and CFG.has_section("STRATEGY"):
+    STRATEGY_SECTION = "STRATEGY"
+
 # Trading pair(s)
-SYMBOLS = [s.strip() for s in CFG.get("TRADING", "SYMBOL", fallback="BTCUSDT").split(",")]
+symbol_cfg = CFG.get(STRATEGY_SECTION, "SYMBOL", fallback=None)
+if symbol_cfg is None:
+    symbol_cfg = CFG.get("TRADING", "SYMBOL", fallback="BTCUSDT")
+SYMBOLS = [s.strip() for s in symbol_cfg.split(",")]
 if not SYMBOLS:
     SYMBOLS = ["BTCUSDT"]
 ENTRY_USDT = CFG.getfloat("TRADING", "entry_usdt", fallback=0.0)
 
 # Strategy timeframe
-TF = CFG.get("STRATEGY", "timeframe", fallback="1m")
+TF = CFG.get(STRATEGY_SECTION, "timeframe", fallback="1m")
 
 # Strategy params with safe defaults
-EMA_FAST = CFG.getint("STRATEGY", "ema_fast", fallback=6)
-EMA_SLOW = CFG.getint("STRATEGY", "ema_slow", fallback=20)
-USE_VWAP = CFG.get("STRATEGY", "use_vwap_filter", fallback="false").lower() == "true"
-VOLUME_CONFIRM = CFG.getfloat("STRATEGY", "volume_confirm", fallback=0.0)  # 0 => off
+EMA_FAST = CFG.getint(STRATEGY_SECTION, "ema_fast", fallback=6)
+EMA_SLOW = CFG.getint(STRATEGY_SECTION, "ema_slow", fallback=20)
+USE_VWAP = CFG.get(STRATEGY_SECTION, "use_vwap_filter", fallback="false").lower() == "true"
+VOLUME_CONFIRM = CFG.getfloat(STRATEGY_SECTION, "volume_confirm", fallback=0.0)  # 0 => off
+USE_TREND_FILTER = CFG.get(STRATEGY_SECTION, "use_trend_filter", fallback="false").lower() == "true"
+TREND_EMA_PERIOD = CFG.getint(STRATEGY_SECTION, "trend_ema_period", fallback=200)
+MIN_EMA_GAP_PCT = CFG.getfloat(STRATEGY_SECTION, "min_ema_gap_pct", fallback=0.0)
 
-TRAIL_PCT = CFG.getfloat("STRATEGY", "trail_percent", fallback=0.15) / 100.0   # 0.15%
-TP_PCT    = CFG.getfloat("STRATEGY", "tp_percent",    fallback=0.40) / 100.0   # 0.40%
-FS_PCT    = CFG.getfloat("STRATEGY", "failsafe_sl_percent", fallback=0.30) / 100.0  # 0.30%
+TRAIL_PCT = CFG.getfloat(STRATEGY_SECTION, "trail_percent", fallback=0.15) / 100.0   # 0.15%
+TP_PCT    = CFG.getfloat(STRATEGY_SECTION, "tp_percent",    fallback=0.40) / 100.0   # 0.40%
+FS_PCT    = CFG.getfloat(STRATEGY_SECTION, "failsafe_sl_percent", fallback=0.30) / 100.0  # 0.30%
 
-LEVERAGE  = CFG.getint("STRATEGY", "leverage", fallback=1)
-RISK_PER_TRADE_PCT = CFG.getfloat("STRATEGY", "risk_per_trade_pct", fallback=0.25) / 100.0
-DAILY_LOSS_CAP_PCT = CFG.getfloat("STRATEGY", "daily_loss_cap_pct", fallback=2.0) / 100.0
-COOLDOWN_MIN       = CFG.getint("STRATEGY", "cooldown_minutes", fallback=2)
+LEVERAGE  = CFG.getint(STRATEGY_SECTION, "leverage", fallback=1)
+RISK_PER_TRADE_PCT = CFG.getfloat(STRATEGY_SECTION, "risk_per_trade_pct", fallback=0.25) / 100.0
+DAILY_LOSS_CAP_PCT = CFG.getfloat(STRATEGY_SECTION, "daily_loss_cap_pct", fallback=2.0) / 100.0
+COOLDOWN_MIN       = CFG.getint(STRATEGY_SECTION, "cooldown_minutes", fallback=2)
+MAX_TRADE_MIN      = CFG.getint(STRATEGY_SECTION, "max_trade_minutes", fallback=0)  # 0 => off
 
 # Management pacing
-SIGNAL_LOOP_SEC = CFG.getint("STRATEGY", "signal_poll_seconds", fallback=55)   # check for new candle
-RISK_LOOP_SEC   = CFG.getint("STRATEGY", "risk_poll_seconds",   fallback=1)   # manage trailing/TP/FS
+SIGNAL_LOOP_SEC = CFG.getint(STRATEGY_SECTION, "signal_poll_seconds", fallback=55)   # check for new candle
+RISK_LOOP_SEC   = CFG.getint(STRATEGY_SECTION, "risk_poll_seconds",   fallback=1)   # manage trailing/TP/FS
 
 # Telegram toggle (uses your index->telegram if needed); here we just reuse log_and_print
 def notify(msg: str):
@@ -100,6 +111,8 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["ema_fast"] = ema(out["close"], EMA_FAST)
     out["ema_slow"] = ema(out["close"], EMA_SLOW)
+    if USE_TREND_FILTER:
+        out["ema_trend"] = ema(out["close"], TREND_EMA_PERIOD)
     if USE_VWAP:
         out["vwap"] = compute_vwap(out)
     return out
@@ -113,6 +126,9 @@ def is_bear_cross(prev_row, row) -> bool:
 def now_ms() -> int:
     return int(time.time() * 1000)
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
 # ------------------------- State per symbol -----------------------------------
 class PositionState:
     def __init__(self):
@@ -122,6 +138,7 @@ class PositionState:
         self.qty: float = 0.0                 # base asset quantity
         self.high_since_entry: Optional[float] = None
         self.low_since_entry: Optional[float] = None
+        self.entry_time: Optional[datetime] = None
         self.last_candle_time: Optional[pd.Timestamp] = None
         self.daily_start_date: Optional[datetime] = None
         self.daily_pnl: float = 0.0
@@ -129,9 +146,9 @@ class PositionState:
         self.cooldown_until: Optional[datetime] = None
 
     def reset_intraday_if_needed(self):
-        today = datetime.now(timezone.utc).date()
+        today = utcnow().date()
         if self.daily_start_date is None or self.daily_start_date.date() != today:
-            self.daily_start_date = datetime.utcnow()
+            self.daily_start_date = utcnow()
             self.daily_pnl = 0.0
             self.sl_streak = 0
             self.cooldown_until = None
@@ -183,6 +200,7 @@ class MomentumBot:
             self.state.qty_usdt = self.state.qty * entry_price
             self.state.high_since_entry = entry_price
             self.state.low_since_entry = entry_price
+            self.state.entry_time = self.state.entry_time or utcnow()
             notify(f"[{self.symbol}] Synced open position: {self.state.side} qty={self.state.qty} @ {entry_price:.2f}")
         except Exception as e:
             logging.warning(f"[{self.symbol}] Position sync failed: {e}")
@@ -215,7 +233,7 @@ class MomentumBot:
                     continue
 
                 # Cooldown after SL streak
-                if self.state.cooldown_until and datetime.utcnow() < self.state.cooldown_until:
+                if self.state.cooldown_until and utcnow() < self.state.cooldown_until:
                     await asyncio.sleep(SIGNAL_LOOP_SEC)
                     continue
 
@@ -246,6 +264,14 @@ class MomentumBot:
                 cross_up   = is_bull_cross(prev, cur)
                 cross_down = is_bear_cross(prev, cur)
                 vwap_side  = (not USE_VWAP) or (('vwap' in cur) and ((cur.close > cur.vwap) if cross_up else (cur.close < cur.vwap)))
+                ema_gap_pct = abs(cur.ema_fast - cur.ema_slow) / cur.close * 100.0
+                gap_ok = (MIN_EMA_GAP_PCT <= 0) or (ema_gap_pct >= MIN_EMA_GAP_PCT)
+                if USE_TREND_FILTER and "ema_trend" in cur:
+                    trend_ok_long = cur.close > cur.ema_trend
+                    trend_ok_short = cur.close < cur.ema_trend
+                else:
+                    trend_ok_long = True
+                    trend_ok_short = True
                 if VOLUME_CONFIRM > 0:
                     vol_avg = data["volume"].tail(20).mean()
                     vol_ok  = cur["volume"] >= VOLUME_CONFIRM * vol_avg
@@ -258,12 +284,14 @@ class MomentumBot:
                     f"close={cur.close:.2f} ema_fast={cur.ema_fast:.2f} ema_slow={cur.ema_slow:.2f} "
                     f"VWAP={getattr(cur,'vwap',float('nan')):.2f} vol={cur['volume']:.2f} "
                     f"cross_up={cross_up} cross_down={cross_down} "
-                    f"vwap_ok={vwap_side} vol_ok={vol_ok} (mult={VOLUME_CONFIRM}, avg20={vol_avg if vol_avg else 0})"
+                    f"vwap_ok={vwap_side} vol_ok={vol_ok} gap_ok={gap_ok} "
+                    f"trend_ok={trend_ok_long if cross_up else trend_ok_short} "
+                    f"(gap%={ema_gap_pct:.3f} mult={VOLUME_CONFIRM}, avg20={vol_avg if vol_avg else 0})"
                 )
 
                 # Signals using debug variables
-                long_sig  = cross_up   and vwap_side and vol_ok
-                short_sig = cross_down and vwap_side and vol_ok
+                long_sig  = cross_up   and vwap_side and vol_ok and gap_ok and trend_ok_long
+                short_sig = cross_down and vwap_side and vol_ok and gap_ok and trend_ok_short
 
                 # Enter if flat
                 if self.state.side is None and (long_sig or short_sig):
@@ -286,7 +314,7 @@ class MomentumBot:
                         logging.info(f"[{self.symbol}] Position size too small, skipping entry.")
                         continue
 
-                    order = place_order(self.symbol, side, usdt_amount=usdt_amt)
+                    order = place_order(self.symbol, side, usdt_amount=usdt_amt, strategy_name="Momentum")
                     if order:
                         entry_price = self._extract_avg_price(order, entry_price)
                         qty = float(order.get("executedQty") or order.get("origQty") or 0)
@@ -298,6 +326,7 @@ class MomentumBot:
                         self.state.qty = qty
                         self.state.high_since_entry = entry_price
                         self.state.low_since_entry = entry_price
+                        self.state.entry_time = utcnow()
                         notify(f"[{self.symbol}] ENTER {self.state.side} @ {entry_price:.2f} "
                                f"(notional ~{usdt_amt:.2f} USDT)")
             except Exception as e:
@@ -353,6 +382,12 @@ class MomentumBot:
                         await self._exit_market("FailSafe", last_price)
                         continue
 
+                # time-based exit to avoid stagnation
+                if MAX_TRADE_MIN > 0 and self.state.entry_time is not None:
+                    if utcnow() - self.state.entry_time >= timedelta(minutes=MAX_TRADE_MIN):
+                        await self._exit_market("TimeExit", last_price)
+                        continue
+
             except Exception as e:
                 logging.exception(f"[{self.symbol}] risk_loop error: {e}")
 
@@ -365,7 +400,7 @@ class MomentumBot:
             usdt_amt = self.state.qty * last_price
         else:
             usdt_amt = self.state.qty_usdt
-        order = place_order(self.symbol, out_side, usdt_amount=usdt_amt, reduce_only=True)
+        order = place_order(self.symbol, out_side, usdt_amount=usdt_amt, reduce_only=True, strategy_name="Momentum")
         if order:
             exit_price = self._extract_avg_price(order, last_price)
             pnl_pct = ((exit_price - self.state.entry_price) / self.state.entry_price) if self.state.side == "LONG" \
@@ -378,7 +413,7 @@ class MomentumBot:
             if reason in ("TrailingStop", "FailSafe") and pnl_pct < 0:
                 self.state.sl_streak += 1
                 if self.state.sl_streak >= 3:
-                    self.state.cooldown_until = datetime.utcnow() + timedelta(minutes=COOLDOWN_MIN)
+                    self.state.cooldown_until = utcnow() + timedelta(minutes=COOLDOWN_MIN)
                     notify(f"[{self.symbol}] SL streak {self.state.sl_streak}. Cooldown until {self.state.cooldown_until}.")
 
             if reason == "TakeProfit":
@@ -394,6 +429,7 @@ class MomentumBot:
             self.state.qty = 0.0
             self.state.high_since_entry = None
             self.state.low_since_entry = None
+            self.state.entry_time = None
 # ------------------------- Backtest ---------------------------------------------
 # ------------------------- Backtest ---------------------------------------------
 # (in momentum_trader_bot.py)
